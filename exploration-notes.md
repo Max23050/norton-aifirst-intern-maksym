@@ -14,7 +14,7 @@
 - Cream background with white cards
 - Strong, bold typography hierarchy
 
-## Key UX patterns observed
+## Key UX patterns observed (Home / Smart Scan dashboard)
 1. Reassurance-first headlines ("You are protected")
 2. Circular progress with percentage for scans
 3. Colored numerals + black nouns for risk counts ("1 risk found")
@@ -46,7 +46,6 @@
 ### What Genie does poorly
 - No structured output (no risk level, confidence, or reason list - just prose)
 - No source transparency (is this AI? cached known scam? heuristic?)
-- Unrelated upsells injected into result (Siri shortcut, Norton 360 features)
 - Conversation history not saved ("Your chat history won't be saved" warning)
 - Chat UI makes it hard to scan results quickly
 
@@ -56,7 +55,6 @@
 3. Numeric confidence score (e.g. "92% confident")
 4. Specific flagged reasons as bullets, categorized (URL, urgency, credentials, etc.)
 5. Source label showing whether result came from AI, heuristics, or both
-6. Focused single-task screen - no upsells or off-topic suggestion
 
 ## Safe Web, Device Security, VPN
 
