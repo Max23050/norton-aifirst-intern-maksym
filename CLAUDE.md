@@ -23,6 +23,7 @@ single-task UX.
 - `src/services/` — business logic, pure where possible, fully unit-tested
 - `src/models/` — pure type definitions, no runtime code, no RN imports
 - `src/data/` — static catalogues (scam patterns, examples), no logic
+- `src/utils/` — pure stateless helper functions (text analysis, formatting)
 - `src/theme/` — colors, spacing, typography constants
 - `src/__fixtures__/` — shared test data
 
@@ -35,10 +36,11 @@ Shared fixtures go in `src/__fixtures__/`.
 screens → components, hooks
 hooks → services, models
 services/analyzerOrchestrator → services/heuristicAnalyzer, services/aiAnalyzer, models
-services/heuristicAnalyzer → data, models
+services/heuristicAnalyzer → data, models, utils
 services/aiAnalyzer → models, services/errors
 components → models, theme
-data → models
+data → models, utils
+utils → models (only)
 
 If a proposed import violates this graph, refuse and propose a refactor.
 
@@ -55,6 +57,7 @@ If a proposed import violates this graph, refuse and propose a refactor.
 | `hooks/useScamAnalyzer.ts` | State machine, AbortController on unmount/new request, bounded in-session cache keyed on trimmed input | Render, contain scoring logic, import from components |
 | `screens/AnalyzerScreen.tsx` | Compose components, wire to hook | Contain analysis logic, regex, fetch |
 | `components/*` | Render UI from props, emit callbacks | Import services, call hooks beyond useState for local UI |
+| `utils/*` | Pure stateless helper functions (text analysis, formatting). No I/O. Imported by `data`, `services`, `hooks`, `components`. | Import from `services`, `hooks`, or `components`. Hold state. |
 | `theme/*` | Color/spacing/type constants | Be duplicated inline elsewhere |
 
 ## Merge strategy: sequential gate

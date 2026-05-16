@@ -1,5 +1,9 @@
 import type { RiskLevel, FlaggedReason, RiskAssessment } from '@/models';
 import { SCAM_PATTERNS, type ScamPattern } from '@/data/scamPatterns';
+import { uppercaseRatio } from '@/utils/textAnalysis';
+
+// Re-export for testing convenience
+export { uppercaseRatio } from '@/utils/textAnalysis';
 
 // ── Internal types ──────────────────────────────────────────────
 
@@ -42,7 +46,7 @@ const SHORTENER_HOSTS = new Set([
 ]);
 
 const SUSPICIOUS_TLDS = new Set([
-  'xyz', 'top', 'click', 'zip', 'review', 'country', 'gq', 'tk', 'ml', 'cf', 'info',
+  'xyz', 'top', 'click', 'zip', 'review', 'country', 'gq', 'tk', 'ml', 'cf',
 ]);
 
 const COMMON_TLDS = [
@@ -93,7 +97,7 @@ export function extractUrls(text: string): string[] {
     const start = match.index;
     if (start > 0 && text[start - 1] === '@') continue;
 
-    let url = match[0].replace(/[.,;:!?)>]+$/, '');
+    const url = match[0].replace(/[.,;:!?)>]+$/, '');
 
     const pathPart = url.replace(/^(?:https?:\/\/)?[^/]+/, '');
     if (pathPart && /^\/[\d.]+$/.test(pathPart)) continue;
@@ -140,21 +144,6 @@ export function analyzeUrl(url: string): UrlAnalysis {
     hasSuspiciousTld,
     hasMixedScript,
   };
-}
-
-/** Returns the ratio of uppercase letters to all alphabetic chars. Returns 0 if fewer than 10 letters. */
-export function uppercaseRatio(text: string): number {
-  let upper = 0;
-  let alpha = 0;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (/[a-zA-Z]/.test(ch)) {
-      alpha++;
-      if (ch >= 'A' && ch <= 'Z') upper++;
-    }
-  }
-  if (alpha < 10) return 0;
-  return upper / alpha;
 }
 
 // ── Private helpers ─────────────────────────────────────────────
@@ -273,8 +262,6 @@ export function analyzeHeuristic(message: string): RiskAssessment {
   const hasPlainHttp = urlAnalyses.some((u) => u.scheme === 'http');
 
   for (const pat of SCAM_PATTERNS) {
-    if (pat.id === 'grammar.excessive-caps') continue;
-
     let isMatch = false;
 
     if (pat.category === 'url') {
@@ -292,6 +279,8 @@ export function analyzeHeuristic(message: string): RiskAssessment {
           isMatch = hasPlainHttp;
           break;
       }
+    } else if (pat.kind === 'function') {
+      isMatch = pat.evaluate(message);
     } else if (pat.kind === 'regex') {
       pat.pattern.lastIndex = 0;
       isMatch = pat.pattern.test(message);
@@ -307,20 +296,6 @@ export function analyzeHeuristic(message: string): RiskAssessment {
         severity: pat.severity,
         weight: pat.weight,
         description: pat.description,
-      });
-    }
-  }
-
-  if (uppercaseRatio(message) > 0.6) {
-    const capsPat = SCAM_PATTERNS.find((p) => p.id === 'grammar.excessive-caps');
-    if (capsPat && !matchedIds.has(capsPat.id)) {
-      matchedIds.add(capsPat.id);
-      matched.push({
-        id: capsPat.id,
-        category: capsPat.category,
-        severity: capsPat.severity,
-        weight: capsPat.weight,
-        description: capsPat.description,
       });
     }
   }
