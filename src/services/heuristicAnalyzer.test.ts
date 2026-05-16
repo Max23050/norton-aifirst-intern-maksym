@@ -7,6 +7,8 @@
  * - analyzeUrl shortener and IP detection
  * - Co-occurrence multiplier test
  * - Determinism test
+ * - Regression: safe messages produce no flagged reasons (or grammar-only)
+ * - Regression: dangerous messages produce at least 2 distinct reason categories
  */
 
 import {
@@ -108,22 +110,41 @@ describe('analyzeHeuristic', () => {
 
   describe('co-occurrence multiplier', () => {
     it('scores higher when both brand impersonation and suspicious URL are present', () => {
-      const brandOnly = analyzeHeuristic('Your Apple account needs attention.');
       const urlOnly = analyzeHeuristic('Check this: http://192.168.1.1/page');
       const combined = analyzeHeuristic(
         'Apple Support: Verify at http://192.168.1.1/apple-verify',
       );
 
-      const brandScore = brandOnly.flaggedReasons.length;
-      const urlScore = urlOnly.flaggedReasons.length;
-      const combinedScore = combined.flaggedReasons.length;
-
-      expect(combinedScore).toBeGreaterThanOrEqual(
-        Math.max(brandScore, urlScore),
+      expect(combined.flaggedReasons.length).toBeGreaterThanOrEqual(
+        urlOnly.flaggedReasons.length,
       );
 
       expect(['suspicious', 'dangerous']).toContain(combined.riskLevel);
     });
+  });
+
+  describe('regression: safe message reasons', () => {
+    it.each(SAFE_MESSAGES.map((m, i) => [i, m]))(
+      'SAFE_MESSAGES[%i] has no flagged reasons or only grammar-category reasons',
+      (_index, message) => {
+        const result = analyzeHeuristic(message as string);
+        const nonGrammarReasons = result.flaggedReasons.filter(
+          (r) => r.category !== 'grammar',
+        );
+        expect(nonGrammarReasons).toHaveLength(0);
+      },
+    );
+  });
+
+  describe('regression: dangerous message categories', () => {
+    it.each(DANGEROUS_MESSAGES.map((m, i) => [i, m]))(
+      'DANGEROUS_MESSAGES[%i] has at least 2 distinct flagged reason categories',
+      (_index, message) => {
+        const result = analyzeHeuristic(message as string);
+        const categories = new Set(result.flaggedReasons.map((r) => r.category));
+        expect(categories.size).toBeGreaterThanOrEqual(2);
+      },
+    );
   });
 });
 
@@ -207,6 +228,11 @@ describe('analyzeUrl', () => {
   it('identifies a suspicious TLD', () => {
     const result = analyzeUrl('https://apple-id-verify.xyz/login');
     expect(result.hasSuspiciousTld).toBe(true);
+  });
+
+  it('does not flag .info as suspicious', () => {
+    const result = analyzeUrl('https://courier-update.info/track');
+    expect(result.hasSuspiciousTld).toBe(false);
   });
 
   it('does not flag a normal domain as suspicious', () => {

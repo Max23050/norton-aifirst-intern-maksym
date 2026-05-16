@@ -1,4 +1,5 @@
 import type { ReasonCategory } from '@/models';
+import { uppercaseRatio } from '@/utils/textAnalysis';
 
 interface BasePattern {
   id: string;
@@ -23,8 +24,15 @@ export interface KeywordPattern extends BasePattern {
   uniqueMatch?: boolean;
 }
 
+/** A pattern that matches via a custom evaluation function. */
+export interface FunctionPattern extends BasePattern {
+  kind: 'function';
+  evaluate: (message: string) => boolean;
+  uniqueMatch?: boolean;
+}
+
 /** Discriminated union of all pattern types in the catalogue. */
-export type ScamPattern = RegexPattern | KeywordPattern;
+export type ScamPattern = RegexPattern | KeywordPattern | FunctionPattern;
 
 /** Curated catalogue of scam indicator patterns used by the heuristic analyzer. */
 export const SCAM_PATTERNS: readonly ScamPattern[] = [
@@ -56,7 +64,7 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
     severity: 'medium',
     weight: 15,
     description: 'Uses a top-level domain commonly seen in scams',
-    pattern: /\b(?:https?:\/\/)?[\w.-]+\.(?:xyz|top|click|zip|review|country|gq|tk|ml|cf|info)\b/i,
+    pattern: /(?:https?:\/\/|www\.)[\w.-]+\.(?:xyz|top|click|zip|review|country|gq|tk|ml|cf)\b/i,
     uniqueMatch: true,
   },
   {
@@ -101,7 +109,6 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
     description: 'Threatens account suspension or closure',
     keywords: [
       'account suspended',
-      'account will be suspended',
       'account closed',
       'account disabled',
       'account locked',
@@ -227,23 +234,34 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
     weight: 5,
     description: 'Mentions a commonly impersonated brand',
     keywords: [
-      'apple',
-      'microsoft',
-      'amazon',
-      'paypal',
-      'netflix',
-      'google',
-      'usps',
-      'fedex',
-      'dhl',
-      'ups',
-      'irs',
-      'hmrc',
-      'chase',
-      'bank of america',
-      'wells fargo',
-      'the bank',
-      'your bank',
+      'apple support',
+      'apple id',
+      'apple account',
+      'microsoft support',
+      'microsoft account',
+      'amazon order',
+      'amazon account',
+      'amazon customer service',
+      'paypal account',
+      'paypal payment',
+      'netflix subscription',
+      'netflix account',
+      'google account',
+      'gmail account',
+      'usps delivery',
+      'usps package',
+      'fedex delivery',
+      'dhl delivery',
+      'ups delivery',
+      'irs notice',
+      'irs payment',
+      'hmrc payment',
+      'chase account',
+      'bank of america account',
+      'wells fargo account',
+      'your bank account',
+      'the bank account',
+      'bank statement',
     ],
     uniqueMatch: true,
   },
@@ -269,13 +287,12 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
   // ── Grammar patterns ──────────────────────────────────────────
   {
     id: 'grammar.excessive-caps',
-    kind: 'regex',
+    kind: 'function',
     category: 'grammar',
     severity: 'low',
     weight: 5,
     description: 'Uses excessive uppercase text',
-    // Placeholder — evaluated by the analyzer's uppercaseRatio helper, not this regex
-    pattern: /$.^/,
+    evaluate: (message: string) => uppercaseRatio(message) > 0.6,
     uniqueMatch: true,
   },
   {
@@ -288,4 +305,4 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
     pattern: /!{3,}/,
     uniqueMatch: true,
   },
-] as const satisfies readonly ScamPattern[];
+];
