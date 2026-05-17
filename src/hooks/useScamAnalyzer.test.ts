@@ -1,8 +1,10 @@
 /**
  * AI-generated test cases:
  * - Initial idle state
+ * - Empty and whitespace-only input validation
  * - Happy path idle to analyzing to success transition
  * - In-session cache hit with trimmed message keys
+ * - Reset clears UI state but preserves in-session cache
  * - FIFO cache eviction after 20 entries
  * - AbortController cancellation on unmount
  * - AbortController cancellation on sequential analyze calls
@@ -75,6 +77,20 @@ describe('useScamAnalyzer', () => {
     expect(result.current.state).toEqual({ status: 'idle' });
   });
 
+  it('enters error state without analyzing empty or whitespace-only input', async () => {
+    const { result } = renderHook(() => useScamAnalyzer());
+
+    await act(async () => {
+      await result.current.analyze('   \n\t  ');
+    });
+
+    expect(mockAnalyzeMessage).not.toHaveBeenCalled();
+    expect(result.current.state).toEqual({
+      status: 'error',
+      error: 'Paste a message first.',
+    });
+  });
+
   it('transitions from idle to analyzing to success', async () => {
     const deferred = createDeferred<RiskAssessment>();
     const assessment = makeAssessment({ riskLevel: 'dangerous' });
@@ -120,6 +136,32 @@ describe('useScamAnalyzer', () => {
       'verify your account',
       { signal: expect.any(AbortSignal) },
     );
+    expect(result.current.state).toEqual({
+      status: 'success',
+      data: assessment,
+    });
+  });
+
+  it('preserves the in-session cache after reset', async () => {
+    const assessment = makeAssessment({ explanation: 'Cached across reset.' });
+    mockAnalyzeMessage.mockResolvedValueOnce(assessment);
+    const { result } = renderHook(() => useScamAnalyzer());
+
+    await act(async () => {
+      await result.current.analyze('cached message');
+    });
+
+    act(() => {
+      result.current.reset();
+    });
+
+    expect(result.current.state).toEqual({ status: 'idle' });
+
+    await act(async () => {
+      await result.current.analyze('cached message');
+    });
+
+    expect(mockAnalyzeMessage).toHaveBeenCalledTimes(1);
     expect(result.current.state).toEqual({
       status: 'success',
       data: assessment,

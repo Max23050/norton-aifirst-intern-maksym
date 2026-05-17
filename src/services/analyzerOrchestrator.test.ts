@@ -2,6 +2,7 @@
  * AI-generated test cases:
  * - Early exit on high-confidence safe and dangerous heuristic results
  * - No early exit for suspicious or low-confidence heuristic results
+ * - No early exit for long no-hit heuristic safe results
  * - Merge risk, confidence, source, explanations, and timestamps
  * - More cautious risk-level precedence
  * - Weighted confidence averaging
@@ -15,7 +16,7 @@
 
 import type { FlaggedReason, RiskAssessment, RiskLevel } from '@/models';
 import { analyzeWithAI } from '@/services/aiAnalyzer';
-import { AIAnalyzerError } from '@/services/errors';
+import { AIAnalyzerError, ValidationError } from '@/services/errors';
 import { analyzeHeuristic } from '@/services/heuristicAnalyzer';
 
 import { analyze, moreCautious } from './analyzerOrchestrator';
@@ -62,28 +63,26 @@ describe('analyze', () => {
     const heuristic = makeAssessment({
       riskLevel: 'safe',
       confidence: 95,
-      source: 'ai',
     });
     mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
 
     const result = await analyze('See you at 5');
 
     expect(mockAnalyzeWithAI).not.toHaveBeenCalled();
-    expect(result).toEqual({ ...heuristic, source: 'heuristic' });
+    expect(result).toEqual(heuristic);
   });
 
   it('returns heuristic result and skips AI for high-confidence dangerous verdicts', async () => {
     const heuristic = makeAssessment({
       riskLevel: 'dangerous',
       confidence: 90,
-      source: 'combined',
     });
     mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
 
     const result = await analyze('Reset password now at bit.ly/example');
 
     expect(mockAnalyzeWithAI).not.toHaveBeenCalled();
-    expect(result).toEqual({ ...heuristic, source: 'heuristic' });
+    expect(result).toEqual(heuristic);
   });
 
   it('calls AI for high-confidence suspicious verdicts', async () => {
@@ -123,6 +122,27 @@ describe('analyze', () => {
     expect(mockAnalyzeWithAI).toHaveBeenCalledTimes(1);
   });
 
+  it('calls AI for long no-hit safe verdicts because heuristic confidence is capped', async () => {
+    const heuristic = makeAssessment({
+      riskLevel: 'safe',
+      confidence: 70,
+    });
+    const ai = makeAssessment({
+      riskLevel: 'safe',
+      confidence: 90,
+      source: 'ai',
+    });
+    const longMessage = 'a'.repeat(5000);
+    mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
+    mockAnalyzeWithAI.mockResolvedValueOnce(ai);
+
+    const result = await analyze(longMessage);
+
+    expect(mockAnalyzeWithAI).toHaveBeenCalledTimes(1);
+    expect(mockAnalyzeWithAI).toHaveBeenCalledWith(longMessage, undefined);
+    expect(result.source).toBe('combined');
+  });
+
   it('early exits at exactly 85 confidence when the heuristic verdict is safe', async () => {
     const heuristic = makeAssessment({
       riskLevel: 'safe',
@@ -150,6 +170,19 @@ describe('analyze', () => {
     expect(mockAnalyzeHeuristic).toHaveBeenCalledWith('   ');
     expect(mockAnalyzeWithAI).not.toHaveBeenCalled();
     expect(result).toEqual(heuristic);
+  });
+
+  it('throws when heuristic confidence violates the assessment contract', async () => {
+    const heuristic = makeAssessment({
+      riskLevel: 'safe',
+      confidence: Number.NaN,
+    });
+    mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
+
+    await expect(analyze('Invalid heuristic confidence')).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    expect(mockAnalyzeWithAI).not.toHaveBeenCalled();
   });
 
   it('merges assessments when both analyzers run', async () => {
@@ -296,6 +329,26 @@ describe('analyze', () => {
     ]);
   });
 
+  it('preserves degraded when either merged assessment is degraded', async () => {
+    const heuristic = makeAssessment({
+      riskLevel: 'suspicious',
+      confidence: 70,
+      degraded: true,
+    });
+    const ai = makeAssessment({
+      riskLevel: 'suspicious',
+      confidence: 90,
+      source: 'ai',
+    });
+    mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
+    mockAnalyzeWithAI.mockResolvedValueOnce(ai);
+
+    const result = await analyze('Degraded heuristic context');
+
+    expect(result.source).toBe('combined');
+    expect(result.degraded).toBe(true);
+  });
+
   it('falls back to degraded heuristic result when AI throws an AnalyzerError', async () => {
     const heuristic = makeAssessment({
       riskLevel: 'suspicious',
@@ -305,6 +358,28 @@ describe('analyze', () => {
     mockAnalyzeWithAI.mockRejectedValueOnce(new AIAnalyzerError('OpenAI request failed'));
 
     const result = await analyze('AI will fail');
+
+    expect(result).toEqual({
+      ...heuristic,
+      source: 'heuristic',
+      degraded: true,
+    });
+  });
+
+  it('falls back to degraded heuristic result when AI returns invalid confidence', async () => {
+    const heuristic = makeAssessment({
+      riskLevel: 'suspicious',
+      confidence: 70,
+    });
+    const ai = makeAssessment({
+      riskLevel: 'suspicious',
+      confidence: Number.POSITIVE_INFINITY,
+      source: 'ai',
+    });
+    mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
+    mockAnalyzeWithAI.mockResolvedValueOnce(ai);
+
+    const result = await analyze('AI returns invalid confidence');
 
     expect(result).toEqual({
       ...heuristic,

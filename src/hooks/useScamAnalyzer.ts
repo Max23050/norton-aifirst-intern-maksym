@@ -4,6 +4,7 @@ import type { RiskAssessment } from '@/models';
 import { analyze as analyzeMessage } from '@/services/analyzerOrchestrator';
 
 const MAX_CACHE_SIZE = 20;
+const EMPTY_MESSAGE_ERROR = 'Paste a message first.';
 const DEFAULT_ERROR_MESSAGE = 'Unable to analyze this message. Please try again.';
 
 export type ScamAnalyzerState =
@@ -30,11 +31,17 @@ export function useScamAnalyzer(): UseScamAnalyzerResult {
 
   const reset = useCallback(() => {
     abortActiveRequest();
+    // Reset is a UI reset; keep the in-session cache for repeated checks.
     setState({ status: 'idle' });
   }, [abortActiveRequest]);
 
   const analyze = useCallback(async (message: string) => {
     const trimmedMessage = message.trim();
+
+    if (trimmedMessage.length === 0) {
+      setState({ status: 'error', error: EMPTY_MESSAGE_ERROR });
+      return;
+    }
 
     abortActiveRequest();
 

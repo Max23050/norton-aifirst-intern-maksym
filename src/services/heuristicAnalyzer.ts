@@ -1,5 +1,10 @@
-import type { RiskLevel, FlaggedReason, RiskAssessment } from '@/models';
-import { SCAM_PATTERNS, type ScamPattern } from '@/data/scamPatterns';
+import type { RiskLevel, FlaggedReason, RiskAssessment, Severity } from '@/models';
+import {
+  SCAM_PATTERNS,
+  URL_SHORTENER_HOSTS,
+  URL_SHORTENER_PATTERN_SOURCE,
+  type ScamPattern,
+} from '@/data/scamPatterns';
 import { uppercaseRatio } from '@/utils/textAnalysis';
 
 // Re-export for testing convenience
@@ -10,7 +15,7 @@ export { uppercaseRatio } from '@/utils/textAnalysis';
 interface MatchedPattern {
   id: string;
   category: ScamPattern['category'];
-  severity: FlaggedReason['severity'];
+  severity: Severity;
   weight: number;
   description: string;
 }
@@ -35,15 +40,7 @@ export interface UrlAnalysis {
 
 // ── Constants ───────────────────────────────────────────────────
 
-const SHORTENER_HOSTS = new Set([
-  'bit.ly',
-  'tinyurl.com',
-  't.co',
-  'goo.gl',
-  'is.gd',
-  'ow.ly',
-  'cutt.ly',
-]);
+const SHORTENER_HOSTS = new Set<string>(URL_SHORTENER_HOSTS);
 
 const SUSPICIOUS_TLDS = new Set([
   'xyz', 'top', 'click', 'zip', 'review', 'country', 'gq', 'tk', 'ml', 'cf',
@@ -55,19 +52,24 @@ const COMMON_TLDS = [
   'xyz', 'top', 'click', 'zip', 'review', 'country', 'gq', 'tk', 'ml', 'cf',
 ];
 
-const SHORTENER_DOMAINS = [
-  'bit\\.ly', 'tinyurl\\.com', 't\\.co', 'goo\\.gl', 'is\\.gd', 'ow\\.ly', 'cutt\\.ly',
-];
-
 const URL_REGEX = new RegExp(
   '(?:https?:\\/\\/\\S+)' +
   '|(?:www\\.\\S+)' +
-  '|(?:(?:' + SHORTENER_DOMAINS.join('|') + ')\\/\\S*)' +
+  '|(?:(?:' + URL_SHORTENER_PATTERN_SOURCE + ')\\/\\S*)' +
   '|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\\.(?:' + COMMON_TLDS.join('|') + ')(?:\\/\\S*)?)' ,
   'gi',
 );
 
 const IP_HOST_REGEX = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const MEDIUM_MESSAGE_LENGTH = 160;
+const LONG_MESSAGE_LENGTH = 500;
+const NEGATION_CONTEXT_CHARS = 40;
+const NEGATED_KEYWORD_PREFIXES = [
+  /\bdo not(?: ever)?\s+$/i,
+  /\bdon't(?: ever)?\s+$/i,
+  /\bnever\s+$/i,
+  /\bnot safe to\s+$/i,
+] as const;
 
 // Metric registry — maps declarative metric names from ThresholdPattern
 // to actual evaluation functions. Keeps matching logic in the service layer
@@ -76,7 +78,7 @@ const THRESHOLD_METRICS: Record<string, (message: string) => number> = {
   uppercaseRatio,
 };
 
-const SEVERITY_RANK: Record<FlaggedReason['severity'], number> = {
+const SEVERITY_RANK: Record<Severity, number> = {
   low: 0,
   medium: 1,
   high: 2,
@@ -91,6 +93,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   grammar: 'grammar issues',
   other: 'other indicators',
 };
+
+const EMPTY_KEYWORD_REGEXES: readonly RegExp[] = [];
+const KEYWORD_REGEXES = buildKeywordRegexes(SCAM_PATTERNS);
 
 // ── Exported helpers ────────────────────────────────────────────
 
@@ -171,14 +176,56 @@ function detectMixedScript(hostname: string): boolean {
   return false;
 }
 
-function matchKeywordPattern(message: string, keywords: readonly string[]): boolean {
-  const lower = message.toLowerCase();
-  for (const kw of keywords) {
-    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp('\\b' + escaped + '\\b', 'i');
-    if (re.test(lower)) return true;
+function buildKeywordRegexes(
+  patterns: readonly ScamPattern[],
+): ReadonlyMap<string, readonly RegExp[]> {
+  const compiled = new Map<string, readonly RegExp[]>();
+
+  for (const pattern of patterns) {
+    if (pattern.kind === 'keyword') {
+      compiled.set(
+        pattern.id,
+        pattern.keywords.map((keyword) => compileKeywordRegex(keyword)),
+      );
+    }
+  }
+
+  return compiled;
+}
+
+function compileKeywordRegex(keyword: string): RegExp {
+  const escaped = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('\\b' + escaped + '\\b', 'g');
+}
+
+function matchKeywordPattern(
+  lowerMessage: string,
+  keywordRegexes: readonly RegExp[],
+  options?: { ignoreNegated?: boolean },
+): boolean {
+  for (const re of keywordRegexes) {
+    let match: RegExpExecArray | null;
+
+    re.lastIndex = 0;
+    while ((match = re.exec(lowerMessage)) !== null) {
+      if (
+        !options?.ignoreNegated ||
+        !hasNegatedKeywordPrefix(lowerMessage, match.index)
+      ) {
+        return true;
+      }
+    }
   }
   return false;
+}
+
+function hasNegatedKeywordPrefix(lowerMessage: string, matchIndex: number): boolean {
+  const context = lowerMessage.slice(
+    Math.max(0, matchIndex - NEGATION_CONTEXT_CHARS),
+    matchIndex,
+  );
+
+  return NEGATED_KEYWORD_PREFIXES.some((pattern) => pattern.test(context));
 }
 
 function buildExplanation(
@@ -210,8 +257,17 @@ function scoreToRiskLevel(score: number): RiskLevel {
   return 'dangerous';
 }
 
-function scoreToConfidence(score: number, matchCount: number): number {
-  if (matchCount === 0) return 95;
+function scoreToConfidence(
+  score: number,
+  matchCount: number,
+  messageLength: number,
+): number {
+  if (matchCount === 0) {
+    if (messageLength > LONG_MESSAGE_LENGTH) return 70;
+    if (messageLength > MEDIUM_MESSAGE_LENGTH) return 80;
+    return 95;
+  }
+
   if (score <= 10) return 85;
   if (score <= 25) return 70;
   if (score <= 45) return 65;
@@ -259,6 +315,7 @@ export function analyzeHeuristic(message: string): RiskAssessment {
 
   const matched: MatchedPattern[] = [];
   const matchedIds = new Set<string>();
+  const lowerMessage = message.toLowerCase();
 
   const urls = extractUrls(message);
   const urlAnalyses = urls.map(analyzeUrl);
@@ -293,7 +350,11 @@ export function analyzeHeuristic(message: string): RiskAssessment {
       pat.pattern.lastIndex = 0;
       isMatch = pat.pattern.test(message);
     } else {
-      isMatch = matchKeywordPattern(message, pat.keywords);
+      isMatch = matchKeywordPattern(
+        lowerMessage,
+        KEYWORD_REGEXES.get(pat.id) ?? EMPTY_KEYWORD_REGEXES,
+        { ignoreNegated: pat.ignoreNegated },
+      );
     }
 
     if (isMatch && !matchedIds.has(pat.id)) {
@@ -331,7 +392,7 @@ export function analyzeHeuristic(message: string): RiskAssessment {
 
   const score = Math.min(rawScore, 100);
   const riskLevel = scoreToRiskLevel(score);
-  const confidence = scoreToConfidence(score, matched.length);
+  const confidence = scoreToConfidence(score, matched.length, message.trim().length);
   const flaggedReasons = dedupeReasons(matched);
   const explanation = buildExplanation(riskLevel, matched);
 

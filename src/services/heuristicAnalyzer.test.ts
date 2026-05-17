@@ -2,6 +2,7 @@
  * AI-generated test cases:
  * - All SAFE_MESSAGES / SUSPICIOUS_MESSAGES / DANGEROUS_MESSAGES fixture loops
  * - Edge case tests (empty, whitespace, very short, very long)
+ * - Confidence cap for medium/long no-hit messages
  * - extractUrls extraction, punctuation, email filtering
  * - uppercaseRatio empty/short/long
  * - analyzeUrl shortener and IP detection
@@ -9,6 +10,7 @@
  * - Determinism test
  * - Regression: safe messages produce no flagged reasons (or grammar-only)
  * - Regression: dangerous messages produce at least 2 distinct reason categories
+ * - OTP solicitation false positive prevention
  */
 
 import {
@@ -92,6 +94,22 @@ describe('analyzeHeuristic', () => {
       expect(result.riskLevel).toBeDefined();
       expect(elapsed).toBeLessThan(1000);
     });
+
+    it('caps confidence for medium-length messages with no matched patterns', () => {
+      const result = analyzeHeuristic(
+        'Here is the complete meeting recap from today with project notes, next steps, owners, dates, and follow-up items for the whole team to review before our next planning session.',
+      );
+      expect(result.riskLevel).toBe('safe');
+      expect(result.flaggedReasons).toEqual([]);
+      expect(result.confidence).toBe(80);
+    });
+
+    it('caps confidence further for long messages with no matched patterns', () => {
+      const result = analyzeHeuristic(EDGE_CASE_MESSAGES.veryLong);
+      expect(result.riskLevel).toBe('safe');
+      expect(result.flaggedReasons).toEqual([]);
+      expect(result.confidence).toBe(70);
+    });
   });
 
   describe('determinism', () => {
@@ -121,9 +139,48 @@ describe('analyzeHeuristic', () => {
       expect(result.riskLevel).toBe('safe');
     });
 
+    it('returns safe for a legitimate OTP warning with do-not-share wording', () => {
+      const result = analyzeHeuristic(
+        'Your Google verification code is 482917. Do not share your code with anyone.',
+      );
+      expect(result.riskLevel).toBe('safe');
+      expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(false);
+    });
+
+    it('returns safe for a legitimate OTP warning that names the verification code', () => {
+      const result = analyzeHeuristic(
+        'Your Google verification code is 482917. Do not share your verification code with anyone.',
+      );
+      expect(result.riskLevel).toBe('safe');
+      expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(false);
+    });
+
+    it('flags a direct request to send a one-time code', () => {
+      const result = analyzeHeuristic('Send me the code.');
+      expect(result.riskLevel).toBe('suspicious');
+      expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(true);
+    });
+
     it('flags a message that solicits a verification code', () => {
       const result = analyzeHeuristic(
         'We detected suspicious activity. Reply with the code we just sent to verify your identity.',
+      );
+      expect(result.riskLevel).not.toBe('safe');
+      expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(true);
+    });
+
+    it('flags support impersonation asking for a verification code', () => {
+      const result = analyzeHeuristic(
+        'Hi, this is Microsoft support. We noticed unusual activity on your account. Please reply with your verification code.',
+      );
+      expect(result.riskLevel).toBe('suspicious');
+      expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(true);
+      expect(result.flaggedReasons.some((r) => r.category === 'impersonation')).toBe(true);
+    });
+
+    it('flags a non-negated request to share a verification code', () => {
+      const result = analyzeHeuristic(
+        'Please share your verification code with me to verify your account.',
       );
       expect(result.riskLevel).not.toBe('safe');
       expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(true);

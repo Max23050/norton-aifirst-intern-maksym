@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import type { FlaggedReason } from '../models';
+import type { FlaggedReason, Severity } from '../models';
 import { colors } from '../theme/colors';
 
 export interface ReasonItemProps {
@@ -26,7 +26,7 @@ export function ReasonItem({ reason }: ReasonItemProps) {
   );
 }
 
-const severityColors: Record<FlaggedReason['severity'], string> = {
+const severityColors: Record<Severity, string> = {
   low: colors.risk.safe,
   medium: colors.risk.suspicious,
   high: colors.risk.dangerous,

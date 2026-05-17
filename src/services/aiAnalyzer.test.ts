@@ -6,11 +6,12 @@
  * - 429 rate limit response
  * - Generic 500 response
  * - Invalid JSON in response content
+ * - Malformed choices payloads
  * - Invalid riskLevel (schema mismatch)
  * - Missing fields with defaults (permissive validation)
  * - Missing API key (placeholder value)
- * - AbortSignal (already aborted)
- * - Error sanitization (no API key leak in cause chain)
+ * - AbortSignal (already aborted and mid-fetch caller abort)
+ * - Error sanitization (safe validation cause, no API key leak in cause chain)
  * - Timeout with and without caller AbortSignal (fetch hangs, fake timers)
  * - Prompt injection input isolation and deterministic guardrail
  */
@@ -39,6 +40,17 @@ function makeOpenAIResponse(content: string): Response {
     statusText: 'OK',
     json: () => Promise.resolve(JSON.parse(body)),
     text: () => Promise.resolve(body),
+    headers: new Headers(),
+  } as unknown as Response;
+}
+
+function makeOpenAIResponseBody(body: unknown): Response {
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
     headers: new Headers(),
   } as unknown as Response;
 }
@@ -221,6 +233,20 @@ describe('analyzeWithAI', () => {
     expect((caught as ValidationError).message).toBe('AI response was not valid JSON');
   });
 
+  it('throws ValidationError when first choice is not an object', async () => {
+    mockFetch.mockResolvedValueOnce(makeOpenAIResponseBody({ choices: [null] }));
+
+    let caught: unknown;
+    try {
+      await analyzeWithAI('test');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ValidationError);
+    expect((caught as ValidationError).message).toBe('AI response choice is not an object');
+  });
+
   it('throws ValidationError when riskLevel is invalid', async () => {
     const content = JSON.stringify({ riskLevel: 'extreme', confidence: 80 });
     mockFetch.mockResolvedValueOnce(makeOpenAIResponse(content));
@@ -234,6 +260,60 @@ describe('analyzeWithAI', () => {
 
     expect(caught).toBeInstanceOf(ValidationError);
     expect((caught as ValidationError).message).toContain('invalid riskLevel');
+  });
+
+  it.each([
+    ['fractional', 92.5],
+    ['negative', -1],
+    ['too large', 101],
+    ['string', '95'],
+    ['null', null],
+  ])('throws ValidationError when confidence is %s', async (_caseName, confidence) => {
+    const content = JSON.stringify({
+      riskLevel: 'safe',
+      confidence,
+      explanation: 'Looks safe.',
+      flaggedReasons: [],
+    });
+    mockFetch.mockResolvedValueOnce(makeOpenAIResponse(content));
+
+    let caught: unknown;
+    try {
+      await analyzeWithAI('test');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ValidationError);
+    expect((caught as ValidationError).message).toBe(
+      'AI confidence must be an integer from 0 to 100',
+    );
+  });
+
+  it('preserves safe validation cause without leaking the API key', async () => {
+    const testKey = 'sk-test-key-123';
+    envMock.OPENAI_API_KEY = testKey;
+    const content = JSON.stringify({ riskLevel: 'extreme', confidence: 80 });
+    mockFetch.mockResolvedValueOnce(makeOpenAIResponse(content));
+
+    let caught: unknown;
+    try {
+      await analyzeWithAI('test');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ValidationError);
+    expect((caught as ValidationError).cause).toEqual({
+      receivedValue: 'extreme',
+    });
+
+    const serialized = JSON.stringify(
+      caught,
+      Object.getOwnPropertyNames(caught as object),
+    );
+    expect(serialized).not.toContain(testKey);
+    expect(serialized).not.toContain('sk-test');
   });
 
   it('returns defaults when optional fields are missing', async () => {
@@ -290,6 +370,52 @@ describe('analyzeWithAI', () => {
     let caught: unknown;
     try {
       await analyzeWithAI('test', { signal: controller.signal });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(AIAnalyzerError);
+    expect((caught as AIAnalyzerError).message).toContain('aborted');
+  });
+
+  it('maps non-Error AbortError-shaped values to AIAnalyzerError', async () => {
+    mockFetch.mockRejectedValueOnce({ name: 'AbortError' });
+
+    let caught: unknown;
+    try {
+      await analyzeWithAI('test');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(AIAnalyzerError);
+    expect((caught as AIAnalyzerError).message).toContain('aborted');
+  });
+
+  it('rejects with AIAnalyzerError when caller signal aborts mid-fetch', async () => {
+    const callerController = new AbortController();
+    mockFetch.mockImplementationOnce(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          const sig = (init as RequestInit)?.signal;
+          if (sig) {
+            sig.addEventListener('abort', () => {
+              reject(
+                Object.assign(new Error('The operation was aborted'), {
+                  name: 'AbortError',
+                }),
+              );
+            });
+          }
+        }),
+    );
+
+    const promise = analyzeWithAI('test message', { signal: callerController.signal });
+    callerController.abort();
+
+    let caught: unknown;
+    try {
+      await promise;
     } catch (err) {
       caught = err;
     }

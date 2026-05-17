@@ -1,9 +1,23 @@
-import type { ReasonCategory } from '@/models';
+import type { ReasonCategory, Severity } from '@/models';
+
+export const URL_SHORTENER_HOSTS = [
+  'bit.ly',
+  'tinyurl.com',
+  't.co',
+  'goo.gl',
+  'is.gd',
+  'ow.ly',
+  'cutt.ly',
+] as const;
+
+export const URL_SHORTENER_PATTERN_SOURCE = URL_SHORTENER_HOSTS
+  .map(escapeRegex)
+  .join('|');
 
 interface BasePattern {
   id: string;
   category: ReasonCategory;
-  severity: 'low' | 'medium' | 'high';
+  severity: Severity;
   weight: number;
   description: string;
   tags?: readonly string[];
@@ -20,6 +34,7 @@ export interface RegexPattern extends BasePattern {
 export interface KeywordPattern extends BasePattern {
   kind: 'keyword';
   keywords: readonly string[];
+  ignoreNegated?: boolean;
   uniqueMatch?: boolean;
 }
 
@@ -38,6 +53,10 @@ export interface ThresholdPattern extends BasePattern {
 /** Discriminated union of all pattern types in the catalogue. */
 export type ScamPattern = RegexPattern | KeywordPattern | ThresholdPattern;
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** Curated catalogue of scam indicator patterns used by the heuristic analyzer. */
 export const SCAM_PATTERNS: readonly ScamPattern[] = [
   // ── URL patterns ──────────────────────────────────────────────
@@ -48,7 +67,7 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
     severity: 'high',
     weight: 25,
     description: 'Contains a shortened URL that hides the destination',
-    pattern: /\b(?:bit\.ly|tinyurl\.com|t\.co|goo\.gl|is\.gd|ow\.ly|cutt\.ly)\/\S*/i,
+    pattern: new RegExp(`\\b(?:${URL_SHORTENER_PATTERN_SOURCE})\\/\\S*`, 'i'),
     uniqueMatch: true,
   },
   {
@@ -171,7 +190,7 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
     kind: 'keyword',
     category: 'credentials',
     severity: 'medium',
-    weight: 20,
+    weight: 30,
     description: 'Asks the recipient to share or send a one-time code',
     keywords: [
       'send your verification code',
@@ -181,14 +200,19 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
       'share your verification code',
       'share your security code',
       'share your code with',
+      'reply with your verification code',
+      'reply with your security code',
       'reply with your code',
       'reply with the code',
+      'enter your verification code',
+      'enter your security code',
       'provide your verification code',
       'provide your security code',
       'forward the code',
       'tell me your code',
       'tell us your code',
     ],
+    ignoreNegated: true,
     uniqueMatch: true,
   },
 
