@@ -10,7 +10,7 @@
  * - Invalid riskLevel (schema mismatch)
  * - Missing fields with defaults (permissive validation)
  * - Missing API key (placeholder value)
- * - AbortSignal (already aborted)
+ * - AbortSignal (already aborted and mid-fetch caller abort)
  * - Error sanitization (safe validation cause, no API key leak in cause chain)
  * - Timeout with and without caller AbortSignal (fetch hangs, fake timers)
  * - Prompt injection input isolation and deterministic guardrail
@@ -356,6 +356,38 @@ describe('analyzeWithAI', () => {
     let caught: unknown;
     try {
       await analyzeWithAI('test');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(AIAnalyzerError);
+    expect((caught as AIAnalyzerError).message).toContain('aborted');
+  });
+
+  it('rejects with AIAnalyzerError when caller signal aborts mid-fetch', async () => {
+    const callerController = new AbortController();
+    mockFetch.mockImplementationOnce(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          const sig = (init as RequestInit)?.signal;
+          if (sig) {
+            sig.addEventListener('abort', () => {
+              reject(
+                Object.assign(new Error('The operation was aborted'), {
+                  name: 'AbortError',
+                }),
+              );
+            });
+          }
+        }),
+    );
+
+    const promise = analyzeWithAI('test message', { signal: callerController.signal });
+    callerController.abort();
+
+    let caught: unknown;
+    try {
+      await promise;
     } catch (err) {
       caught = err;
     }
