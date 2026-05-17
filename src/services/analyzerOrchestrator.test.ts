@@ -62,28 +62,26 @@ describe('analyze', () => {
     const heuristic = makeAssessment({
       riskLevel: 'safe',
       confidence: 95,
-      source: 'ai',
     });
     mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
 
     const result = await analyze('See you at 5');
 
     expect(mockAnalyzeWithAI).not.toHaveBeenCalled();
-    expect(result).toEqual({ ...heuristic, source: 'heuristic' });
+    expect(result).toEqual(heuristic);
   });
 
   it('returns heuristic result and skips AI for high-confidence dangerous verdicts', async () => {
     const heuristic = makeAssessment({
       riskLevel: 'dangerous',
       confidence: 90,
-      source: 'combined',
     });
     mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
 
     const result = await analyze('Reset password now at bit.ly/example');
 
     expect(mockAnalyzeWithAI).not.toHaveBeenCalled();
-    expect(result).toEqual({ ...heuristic, source: 'heuristic' });
+    expect(result).toEqual(heuristic);
   });
 
   it('calls AI for high-confidence suspicious verdicts', async () => {
@@ -294,6 +292,26 @@ describe('analyze', () => {
       makeReason('url', 'Shortened URL', 'medium'),
       makeReason('urgency', 'Creates pressure', 'high'),
     ]);
+  });
+
+  it('preserves degraded when either merged assessment is degraded', async () => {
+    const heuristic = makeAssessment({
+      riskLevel: 'suspicious',
+      confidence: 70,
+      degraded: true,
+    });
+    const ai = makeAssessment({
+      riskLevel: 'suspicious',
+      confidence: 90,
+      source: 'ai',
+    });
+    mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
+    mockAnalyzeWithAI.mockResolvedValueOnce(ai);
+
+    const result = await analyze('Degraded heuristic context');
+
+    expect(result.source).toBe('combined');
+    expect(result.degraded).toBe(true);
   });
 
   it('falls back to degraded heuristic result when AI throws an AnalyzerError', async () => {

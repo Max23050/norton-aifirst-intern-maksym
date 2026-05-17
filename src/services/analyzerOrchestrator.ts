@@ -36,10 +36,7 @@ export async function analyze(
     heuristic.confidence >= 85 &&
     (heuristic.riskLevel === 'safe' || heuristic.riskLevel === 'dangerous')
   ) {
-    return {
-      ...heuristic,
-      source: 'heuristic',
-    };
+    return heuristic;
   }
 
   let ai: RiskAssessment;
@@ -72,6 +69,7 @@ function mergeAssessments(
   const explanation = agreed
     ? `${ai.explanation} (Heuristic agreed: ${heuristic.riskLevel} at ${heuristic.confidence}% confidence.)`
     : `${ai.explanation} (Heuristic flagged this as ${heuristic.riskLevel} at ${heuristic.confidence}% confidence.)`;
+  const degraded = heuristic.degraded === true || ai.degraded === true;
 
   return {
     riskLevel,
@@ -82,6 +80,7 @@ function mergeAssessments(
       ...ai.flaggedReasons,
     ]),
     source: 'combined',
+    degraded: degraded || undefined,
     analyzedAt: new Date(),
   };
 }
