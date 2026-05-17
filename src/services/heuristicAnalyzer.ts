@@ -68,6 +68,13 @@ const URL_REGEX = new RegExp(
 );
 
 const IP_HOST_REGEX = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const NEGATION_CONTEXT_CHARS = 40;
+const NEGATED_KEYWORD_PREFIXES = [
+  /\bdo not(?: ever)?\s+$/i,
+  /\bdon't(?: ever)?\s+$/i,
+  /\bnever\s+$/i,
+  /\bnot safe to\s+$/i,
+] as const;
 
 // Metric registry — maps declarative metric names from ThresholdPattern
 // to actual evaluation functions. Keeps matching logic in the service layer
@@ -171,14 +178,36 @@ function detectMixedScript(hostname: string): boolean {
   return false;
 }
 
-function matchKeywordPattern(message: string, keywords: readonly string[]): boolean {
+function matchKeywordPattern(
+  message: string,
+  keywords: readonly string[],
+  options?: { ignoreNegated?: boolean },
+): boolean {
   const lower = message.toLowerCase();
   for (const kw of keywords) {
     const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp('\\b' + escaped + '\\b', 'i');
-    if (re.test(lower)) return true;
+    const re = new RegExp('\\b' + escaped + '\\b', 'gi');
+    let match: RegExpExecArray | null;
+
+    while ((match = re.exec(lower)) !== null) {
+      if (
+        !options?.ignoreNegated ||
+        !hasNegatedKeywordPrefix(lower, match.index)
+      ) {
+        return true;
+      }
+    }
   }
   return false;
+}
+
+function hasNegatedKeywordPrefix(lowerMessage: string, matchIndex: number): boolean {
+  const context = lowerMessage.slice(
+    Math.max(0, matchIndex - NEGATION_CONTEXT_CHARS),
+    matchIndex,
+  );
+
+  return NEGATED_KEYWORD_PREFIXES.some((pattern) => pattern.test(context));
 }
 
 function buildExplanation(
@@ -293,7 +322,9 @@ export function analyzeHeuristic(message: string): RiskAssessment {
       pat.pattern.lastIndex = 0;
       isMatch = pat.pattern.test(message);
     } else {
-      isMatch = matchKeywordPattern(message, pat.keywords);
+      isMatch = matchKeywordPattern(message, pat.keywords, {
+        ignoreNegated: pat.ignoreNegated,
+      });
     }
 
     if (isMatch && !matchedIds.has(pat.id)) {

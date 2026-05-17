@@ -9,6 +9,7 @@
  * - Determinism test
  * - Regression: safe messages produce no flagged reasons (or grammar-only)
  * - Regression: dangerous messages produce at least 2 distinct reason categories
+ * - OTP solicitation false positive prevention
  */
 
 import {
@@ -121,9 +122,39 @@ describe('analyzeHeuristic', () => {
       expect(result.riskLevel).toBe('safe');
     });
 
+    it('returns safe for a legitimate OTP warning with do-not-share wording', () => {
+      const result = analyzeHeuristic(
+        'Your Google verification code is 482917. Do not share your code with anyone.',
+      );
+      expect(result.riskLevel).toBe('safe');
+      expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(false);
+    });
+
+    it('returns safe for a legitimate OTP warning that names the verification code', () => {
+      const result = analyzeHeuristic(
+        'Your Google verification code is 482917. Do not share your verification code with anyone.',
+      );
+      expect(result.riskLevel).toBe('safe');
+      expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(false);
+    });
+
+    it('flags a direct request to send a one-time code', () => {
+      const result = analyzeHeuristic('Send me the code.');
+      expect(result.riskLevel).toBe('suspicious');
+      expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(true);
+    });
+
     it('flags a message that solicits a verification code', () => {
       const result = analyzeHeuristic(
         'We detected suspicious activity. Reply with the code we just sent to verify your identity.',
+      );
+      expect(result.riskLevel).not.toBe('safe');
+      expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(true);
+    });
+
+    it('flags a non-negated request to share a verification code', () => {
+      const result = analyzeHeuristic(
+        'Please share your verification code with me to verify your account.',
       );
       expect(result.riskLevel).not.toBe('safe');
       expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(true);

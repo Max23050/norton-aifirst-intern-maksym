@@ -13,6 +13,7 @@ export const SAFE_MESSAGES = [
   'Mom called. Call her back when you can.',
   'G-482917 is your Google verification code.',
   'Your Chase security code is 839204. Do not share this code with anyone.',
+  'Your Google verification code is 482917. Do not share your code with anyone.',
 ] as const;
 
 export const SUSPICIOUS_MESSAGES = [

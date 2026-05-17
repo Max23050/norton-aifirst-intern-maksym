@@ -20,6 +20,7 @@ export interface RegexPattern extends BasePattern {
 export interface KeywordPattern extends BasePattern {
   kind: 'keyword';
   keywords: readonly string[];
+  ignoreNegated?: boolean;
   uniqueMatch?: boolean;
 }
 
@@ -171,7 +172,7 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
     kind: 'keyword',
     category: 'credentials',
     severity: 'medium',
-    weight: 20,
+    weight: 30,
     description: 'Asks the recipient to share or send a one-time code',
     keywords: [
       'send your verification code',
@@ -189,6 +190,7 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
       'tell me your code',
       'tell us your code',
     ],
+    ignoreNegated: true,
     uniqueMatch: true,
   },
 
