@@ -1,5 +1,6 @@
 import type { FlaggedReason, RiskAssessment, RiskLevel } from '@/models';
 import { analyzeWithAI } from '@/services/aiAnalyzer';
+import { assertConfidence } from '@/services/confidence';
 import { AnalyzerError } from '@/services/errors';
 import { analyzeHeuristic } from '@/services/heuristicAnalyzer';
 
@@ -30,7 +31,7 @@ export async function analyze(
   message: string,
   options?: { signal?: AbortSignal },
 ): Promise<RiskAssessment> {
-  const heuristic = analyzeHeuristic(message);
+  const heuristic = assertAssessmentConfidence(analyzeHeuristic(message), 'Heuristic confidence');
 
   if (
     heuristic.confidence >= 85 &&
@@ -41,20 +42,20 @@ export async function analyze(
 
   let ai: RiskAssessment;
   try {
-    ai = await analyzeWithAI(message, options);
+    ai = assertAssessmentConfidence(await analyzeWithAI(message, options), 'AI confidence');
   } catch (caught: unknown) {
     if (!shouldFallbackFromAIError(caught)) {
       throw caught;
     }
 
-    return {
+    return assertAssessmentConfidence({
       ...heuristic,
       source: 'heuristic',
       degraded: true,
-    };
+    }, 'Heuristic confidence');
   }
 
-  return mergeAssessments(heuristic, ai);
+  return assertAssessmentConfidence(mergeAssessments(heuristic, ai), 'Combined confidence');
 }
 
 function mergeAssessments(
@@ -62,13 +63,16 @@ function mergeAssessments(
   ai: RiskAssessment,
 ): RiskAssessment {
   const riskLevel = moreCautious(heuristic.riskLevel, ai.riskLevel);
-  const confidence = clampConfidence(
-    Math.round((0.6 * ai.confidence) + (0.4 * heuristic.confidence)),
+  const heuristicConfidence = assertConfidence(heuristic.confidence, 'Heuristic confidence');
+  const aiConfidence = assertConfidence(ai.confidence, 'AI confidence');
+  const confidence = assertConfidence(
+    Math.round((0.6 * aiConfidence) + (0.4 * heuristicConfidence)),
+    'Combined confidence',
   );
   const agreed = heuristic.riskLevel === ai.riskLevel;
   const explanation = agreed
-    ? `${ai.explanation} (Heuristic agreed: ${heuristic.riskLevel} at ${heuristic.confidence}% confidence.)`
-    : `${ai.explanation} (Heuristic flagged this as ${heuristic.riskLevel} at ${heuristic.confidence}% confidence.)`;
+    ? `${ai.explanation} (Heuristic agreed: ${heuristic.riskLevel} at ${heuristicConfidence}% confidence.)`
+    : `${ai.explanation} (Heuristic flagged this as ${heuristic.riskLevel} at ${heuristicConfidence}% confidence.)`;
   const degraded = heuristic.degraded === true || ai.degraded === true;
 
   return {
@@ -85,8 +89,12 @@ function mergeAssessments(
   };
 }
 
-function clampConfidence(confidence: number): number {
-  return Math.min(100, Math.max(0, confidence));
+function assertAssessmentConfidence(
+  assessment: RiskAssessment,
+  label: string,
+): RiskAssessment {
+  assertConfidence(assessment.confidence, label);
+  return assessment;
 }
 
 function dedupeReasons(reasons: FlaggedReason[]): FlaggedReason[] {

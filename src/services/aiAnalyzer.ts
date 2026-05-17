@@ -6,6 +6,7 @@
 import { OPENAI_API_KEY } from '@env';
 import type { RiskAssessment, RiskLevel, FlaggedReason, ReasonCategory } from '@/models';
 import { RISK_LEVELS, REASON_CATEGORIES } from '@/models';
+import { assertConfidence } from './confidence';
 import { AIAnalyzerError, ValidationError } from './errors';
 
 // ── Constants ──────────────��────────────────────────────────────
@@ -153,11 +154,11 @@ function validateAssessment(obj: unknown): Omit<RiskAssessment, 'source' | 'anal
   }
   const riskLevel = rawRiskLevel as RiskLevel;
 
-  // confidence — default 50, clamp, round
-  let confidence = 50;
-  if (typeof data['confidence'] === 'number' && !Number.isNaN(data['confidence'])) {
-    confidence = Math.round(Math.min(100, Math.max(0, data['confidence'])));
-  }
+  // confidence — default 50 if omitted, strict 0-100 integer if provided
+  const rawConfidence = data['confidence'];
+  const confidence = rawConfidence === undefined
+    ? 50
+    : assertConfidence(rawConfidence, 'AI confidence');
 
   // explanation — default if missing
   let explanation = 'AI analysis complete.';

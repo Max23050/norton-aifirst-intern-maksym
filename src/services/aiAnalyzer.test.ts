@@ -262,6 +262,34 @@ describe('analyzeWithAI', () => {
     expect((caught as ValidationError).message).toContain('invalid riskLevel');
   });
 
+  it.each([
+    ['fractional', 92.5],
+    ['negative', -1],
+    ['too large', 101],
+    ['string', '95'],
+    ['null', null],
+  ])('throws ValidationError when confidence is %s', async (_caseName, confidence) => {
+    const content = JSON.stringify({
+      riskLevel: 'safe',
+      confidence,
+      explanation: 'Looks safe.',
+      flaggedReasons: [],
+    });
+    mockFetch.mockResolvedValueOnce(makeOpenAIResponse(content));
+
+    let caught: unknown;
+    try {
+      await analyzeWithAI('test');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ValidationError);
+    expect((caught as ValidationError).message).toBe(
+      'AI confidence must be an integer from 0 to 100',
+    );
+  });
+
   it('preserves safe validation cause without leaking the API key', async () => {
     const testKey = 'sk-test-key-123';
     envMock.OPENAI_API_KEY = testKey;

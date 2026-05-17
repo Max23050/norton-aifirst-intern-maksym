@@ -16,7 +16,7 @@
 
 import type { FlaggedReason, RiskAssessment, RiskLevel } from '@/models';
 import { analyzeWithAI } from '@/services/aiAnalyzer';
-import { AIAnalyzerError } from '@/services/errors';
+import { AIAnalyzerError, ValidationError } from '@/services/errors';
 import { analyzeHeuristic } from '@/services/heuristicAnalyzer';
 
 import { analyze, moreCautious } from './analyzerOrchestrator';
@@ -170,6 +170,19 @@ describe('analyze', () => {
     expect(mockAnalyzeHeuristic).toHaveBeenCalledWith('   ');
     expect(mockAnalyzeWithAI).not.toHaveBeenCalled();
     expect(result).toEqual(heuristic);
+  });
+
+  it('throws when heuristic confidence violates the assessment contract', async () => {
+    const heuristic = makeAssessment({
+      riskLevel: 'safe',
+      confidence: Number.NaN,
+    });
+    mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
+
+    await expect(analyze('Invalid heuristic confidence')).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    expect(mockAnalyzeWithAI).not.toHaveBeenCalled();
   });
 
   it('merges assessments when both analyzers run', async () => {
@@ -345,6 +358,28 @@ describe('analyze', () => {
     mockAnalyzeWithAI.mockRejectedValueOnce(new AIAnalyzerError('OpenAI request failed'));
 
     const result = await analyze('AI will fail');
+
+    expect(result).toEqual({
+      ...heuristic,
+      source: 'heuristic',
+      degraded: true,
+    });
+  });
+
+  it('falls back to degraded heuristic result when AI returns invalid confidence', async () => {
+    const heuristic = makeAssessment({
+      riskLevel: 'suspicious',
+      confidence: 70,
+    });
+    const ai = makeAssessment({
+      riskLevel: 'suspicious',
+      confidence: Number.POSITIVE_INFINITY,
+      source: 'ai',
+    });
+    mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
+    mockAnalyzeWithAI.mockResolvedValueOnce(ai);
+
+    const result = await analyze('AI returns invalid confidence');
 
     expect(result).toEqual({
       ...heuristic,
