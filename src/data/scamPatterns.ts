@@ -1,5 +1,19 @@
 import type { ReasonCategory } from '@/models';
 
+export const URL_SHORTENER_HOSTS = [
+  'bit.ly',
+  'tinyurl.com',
+  't.co',
+  'goo.gl',
+  'is.gd',
+  'ow.ly',
+  'cutt.ly',
+] as const;
+
+export const URL_SHORTENER_PATTERN_SOURCE = URL_SHORTENER_HOSTS
+  .map(escapeRegex)
+  .join('|');
+
 interface BasePattern {
   id: string;
   category: ReasonCategory;
@@ -39,6 +53,10 @@ export interface ThresholdPattern extends BasePattern {
 /** Discriminated union of all pattern types in the catalogue. */
 export type ScamPattern = RegexPattern | KeywordPattern | ThresholdPattern;
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** Curated catalogue of scam indicator patterns used by the heuristic analyzer. */
 export const SCAM_PATTERNS: readonly ScamPattern[] = [
   // ── URL patterns ──────────────────────────────────────────────
@@ -49,7 +67,7 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
     severity: 'high',
     weight: 25,
     description: 'Contains a shortened URL that hides the destination',
-    pattern: /\b(?:bit\.ly|tinyurl\.com|t\.co|goo\.gl|is\.gd|ow\.ly|cutt\.ly)\/\S*/i,
+    pattern: new RegExp(`\\b(?:${URL_SHORTENER_PATTERN_SOURCE})\\/\\S*`, 'i'),
     uniqueMatch: true,
   },
   {

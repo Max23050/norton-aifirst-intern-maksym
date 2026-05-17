@@ -2,6 +2,7 @@
  * AI-generated test cases:
  * - All SAFE_MESSAGES / SUSPICIOUS_MESSAGES / DANGEROUS_MESSAGES fixture loops
  * - Edge case tests (empty, whitespace, very short, very long)
+ * - Confidence cap for medium/long no-hit messages
  * - extractUrls extraction, punctuation, email filtering
  * - uppercaseRatio empty/short/long
  * - analyzeUrl shortener and IP detection
@@ -92,6 +93,22 @@ describe('analyzeHeuristic', () => {
       expect(result).toBeDefined();
       expect(result.riskLevel).toBeDefined();
       expect(elapsed).toBeLessThan(1000);
+    });
+
+    it('caps confidence for medium-length messages with no matched patterns', () => {
+      const result = analyzeHeuristic(
+        'Here is the complete meeting recap from today with project notes, next steps, owners, dates, and follow-up items for the whole team to review before our next planning session.',
+      );
+      expect(result.riskLevel).toBe('safe');
+      expect(result.flaggedReasons).toEqual([]);
+      expect(result.confidence).toBe(80);
+    });
+
+    it('caps confidence further for long messages with no matched patterns', () => {
+      const result = analyzeHeuristic(EDGE_CASE_MESSAGES.veryLong);
+      expect(result.riskLevel).toBe('safe');
+      expect(result.flaggedReasons).toEqual([]);
+      expect(result.confidence).toBe(70);
     });
   });
 

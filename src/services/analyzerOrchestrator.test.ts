@@ -2,6 +2,7 @@
  * AI-generated test cases:
  * - Early exit on high-confidence safe and dangerous heuristic results
  * - No early exit for suspicious or low-confidence heuristic results
+ * - No early exit for long no-hit heuristic safe results
  * - Merge risk, confidence, source, explanations, and timestamps
  * - More cautious risk-level precedence
  * - Weighted confidence averaging
@@ -119,6 +120,27 @@ describe('analyze', () => {
     await analyze('Could be safe');
 
     expect(mockAnalyzeWithAI).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls AI for long no-hit safe verdicts because heuristic confidence is capped', async () => {
+    const heuristic = makeAssessment({
+      riskLevel: 'safe',
+      confidence: 70,
+    });
+    const ai = makeAssessment({
+      riskLevel: 'safe',
+      confidence: 90,
+      source: 'ai',
+    });
+    const longMessage = 'a'.repeat(5000);
+    mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
+    mockAnalyzeWithAI.mockResolvedValueOnce(ai);
+
+    const result = await analyze(longMessage);
+
+    expect(mockAnalyzeWithAI).toHaveBeenCalledTimes(1);
+    expect(mockAnalyzeWithAI).toHaveBeenCalledWith(longMessage, undefined);
+    expect(result.source).toBe('combined');
   });
 
   it('early exits at exactly 85 confidence when the heuristic verdict is safe', async () => {
