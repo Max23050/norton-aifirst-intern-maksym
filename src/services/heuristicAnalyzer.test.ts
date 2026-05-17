@@ -1,6 +1,7 @@
 /**
  * AI-generated test cases:
  * - All SAFE_MESSAGES / SUSPICIOUS_MESSAGES / DANGEROUS_MESSAGES fixture loops
+ * - AI_GATE_REQUIRED_MESSAGES stay low-confidence enough for orchestrator AI review
  * - Edge case tests (empty, whitespace, very short, very long)
  * - Confidence cap for medium/long no-hit messages
  * - extractUrls extraction, punctuation, email filtering
@@ -17,6 +18,7 @@ import {
   SAFE_MESSAGES,
   SUSPICIOUS_MESSAGES,
   DANGEROUS_MESSAGES,
+  AI_GATE_REQUIRED_MESSAGES,
   EDGE_CASE_MESSAGES,
 } from '@/__fixtures__/scamMessages';
 import {
@@ -63,6 +65,19 @@ describe('analyzeHeuristic', () => {
       const notSafe = results.filter((r) => r.riskLevel !== 'safe');
       expect(notSafe.length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  describe('AI gate required messages', () => {
+    it.each(AI_GATE_REQUIRED_MESSAGES.map((m, i) => [i, m]))(
+      'keeps AI_GATE_REQUIRED_MESSAGES[%i] below the heuristic early-exit threshold',
+      (_index, message) => {
+        const result = analyzeHeuristic(message as string);
+
+        expect(result.riskLevel).toBe('safe');
+        expect(result.confidence).toBeLessThan(85);
+        expect(result.flaggedReasons.some((r) => r.category === 'impersonation')).toBe(true);
+      },
+    );
   });
 
   describe('edge cases', () => {
@@ -187,6 +202,52 @@ describe('analyzeHeuristic', () => {
     });
   });
 
+  describe('real-world scam category coverage', () => {
+    it.each([
+      [
+        'crypto investment',
+        'I made 400% profit from crypto trading. Join my crypto investment group today.',
+        'financial',
+        'Promotes unrealistic crypto or investment returns',
+      ],
+      [
+        'romance money request',
+        'My love, I need money for my flight so we can finally be together.',
+        'other',
+        'Uses romance or relationship pressure tied to money',
+      ],
+      [
+        'job task scam',
+        'Recruiter on WhatsApp: remote job opportunity, complete simple tasks and earn daily.',
+        'other',
+        'Uses job or recruiting language common in task scams',
+      ],
+      [
+        'tech support access',
+        'This is Microsoft support. Your computer is infected. Install AnyDesk now.',
+        'impersonation',
+        'Claims urgent tech support access or malware cleanup',
+      ],
+      [
+        'sweepstakes prize',
+        'Congratulations, you have won a prize. Pay the processing fee to claim your prize.',
+        'financial',
+        'Promises a prize, lottery, or sweepstakes payout',
+      ],
+    ])('flags %s language', (_name, message, category, description) => {
+      const result = analyzeHeuristic(message);
+
+      expect(result.riskLevel).not.toBe('safe');
+      expect(
+        result.flaggedReasons.some(
+          (reason) =>
+            reason.category === category &&
+            reason.description.includes(description),
+        ),
+      ).toBe(true);
+    });
+  });
+
   describe('co-occurrence multiplier', () => {
     it('scores higher when both brand impersonation and suspicious URL are present', () => {
       const urlOnly = analyzeHeuristic('Check this: http://192.168.1.1/page');
@@ -261,6 +322,14 @@ describe('extractUrls', () => {
     const hasEmail = urls.some((u) => u.includes('john@'));
     expect(hasEmail).toBe(false);
   });
+
+  it.each(['linktr.ee', 'rebrand.ly', 'x.co', 'fb.me', 'lnkd.in'])(
+    'extracts new shortener %s without a scheme',
+    (domain) => {
+      const urls = extractUrls(`Claim details at ${domain}/secure-check now.`);
+      expect(urls).toContain(`${domain}/secure-check`);
+    },
+  );
 });
 
 describe('uppercaseRatio', () => {
@@ -297,6 +366,15 @@ describe('analyzeUrl', () => {
     const result = analyzeUrl('https://tinyurl.com/sec-check');
     expect(result.isShortener).toBe(true);
   });
+
+  it.each(['linktr.ee', 'rebrand.ly', 'x.co', 'fb.me', 'lnkd.in'])(
+    'identifies %s as a shortener',
+    (domain) => {
+      const result = analyzeUrl(`https://${domain}/sec-check`);
+      expect(result.isShortener).toBe(true);
+      expect(result.hostname).toBe(domain);
+    },
+  );
 
   it('identifies a raw IP address URL', () => {
     const result = analyzeUrl('http://192.168.1.4/pay');

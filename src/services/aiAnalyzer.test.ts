@@ -87,12 +87,12 @@ function getLastOpenAIRequestBody(): Record<string, unknown> {
   return JSON.parse(body as string) as Record<string, unknown>;
 }
 
-function getRequestMessages(body: Record<string, unknown>): Array<Record<string, unknown>> {
+function getRequestMessages(body: Record<string, unknown>): Record<string, unknown>[] {
   const messages = body['messages'];
 
   expect(Array.isArray(messages)).toBe(true);
 
-  return messages as Array<Record<string, unknown>>;
+  return messages as Record<string, unknown>[];
 }
 
 // ── Tests ───────────────────────────────────────────────────────
