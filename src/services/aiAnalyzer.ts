@@ -238,7 +238,100 @@ function addPromptInjectionExplanation(explanation: string): string {
   return `${explanation} ${injectionExplanation}`.slice(0, 500);
 }
 
-// ── Main export ───────────��─────────────────────────────────────
+// ── Request helpers ────────────────────────────────────────────
+
+function assertApiKeyPresent(): void {
+  if (!OPENAI_API_KEY || OPENAI_API_KEY === 'sk-your-key-here') {
+    throw new AIAnalyzerError('OpenAI API key is missing');
+  }
+}
+
+async function fetchCompletion(message: string, signal: AbortSignal): Promise<Response> {
+  try {
+    return await fetch(OPENAI_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        response_format: { type: 'json_object' },
+        temperature: 0.2,
+        max_tokens: 500,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: buildUserMessageContent(message) },
+        ],
+      }),
+      signal,
+    });
+  } catch (caught: unknown) {
+    throw handleFetchError(caught);
+  }
+}
+
+function handleFetchError(caught: unknown): AIAnalyzerError {
+  const isAbort =
+    caught instanceof Error && caught.name === 'AbortError';
+  const msg = isAbort
+    ? 'OpenAI request timed out or was aborted'
+    : 'OpenAI request failed';
+  return new AIAnalyzerError(msg, sanitizeCause(caught));
+}
+
+async function handleHttpError(response: Response): Promise<never> {
+  const status = response.status;
+  const statusText = response.statusText;
+  const body = await safeReadErrorBody(response);
+  const causeData = sanitizeCause({ status, statusText, body });
+
+  if (status === 401) {
+    throw new AIAnalyzerError('OpenAI API key is invalid or unauthorized', causeData);
+  }
+  if (status === 429) {
+    throw new AIAnalyzerError('OpenAI rate limit hit', causeData);
+  }
+  throw new AIAnalyzerError(`OpenAI returned status ${status}`, causeData);
+}
+
+function extractContent(responseData: unknown): string {
+  if (typeof responseData !== 'object' || responseData === null) {
+    throw new ValidationError('AI response body is not an object');
+  }
+
+  const data = responseData as Record<string, unknown>;
+  const choices = data['choices'];
+  if (!Array.isArray(choices) || choices.length === 0) {
+    throw new ValidationError('AI response contains no choices');
+  }
+
+  const firstChoice = choices[0] as Record<string, unknown>;
+  const messageObj = firstChoice['message'] as Record<string, unknown> | undefined;
+  const content = messageObj?.['content'];
+
+  if (typeof content !== 'string') {
+    throw new ValidationError('AI response choice has no content string');
+  }
+
+  return content;
+}
+
+function parseAndValidate(
+  content: string,
+  message: string,
+): Omit<RiskAssessment, 'source' | 'analyzedAt'> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (caught: unknown) {
+    throw new ValidationError('AI response was not valid JSON', sanitizeCause(caught));
+  }
+
+  return applyPromptInjectionGuard(validateAssessment(parsed), message);
+}
+
+// ── Main export ────────────────────────────────────────────────
 
 /**
  * Analyzes a message for scam indicators using OpenAI's API.
@@ -248,94 +341,19 @@ export async function analyzeWithAI(
   message: string,
   options?: { signal?: AbortSignal },
 ): Promise<RiskAssessment> {
-  // Validate API key (never include key value in error messages)
-  if (!OPENAI_API_KEY || OPENAI_API_KEY === 'sk-your-key-here') {
-    throw new AIAnalyzerError('OpenAI API key is missing');
-  }
+  assertApiKeyPresent();
 
-  const abortSignal = createTimeoutSignal(options?.signal);
-
+  const timeout = createTimeoutSignal(options?.signal);
   try {
-    let response: Response;
-    try {
-      response = await fetch(OPENAI_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          response_format: { type: 'json_object' },
-          temperature: 0.2,
-          max_tokens: 500,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: buildUserMessageContent(message) },
-          ],
-        }),
-        signal: abortSignal.signal,
-      });
-    } catch (caught: unknown) {
-      const isAbort =
-        caught instanceof Error &&
-        (caught.name === 'AbortError' || caught.message.includes('abort'));
-      const msg = isAbort
-        ? 'OpenAI request timed out or was aborted'
-        : 'OpenAI request failed';
-      throw new AIAnalyzerError(msg, sanitizeCause(caught));
-    }
+    const response = await fetchCompletion(message, timeout.signal);
 
-    // Handle non-2xx responses
     if (!response.ok) {
-      const status = response.status;
-      const statusText = response.statusText;
-      const body = await safeReadErrorBody(response);
-
-      const causeData = sanitizeCause({ status, statusText, body });
-
-      if (status === 401) {
-        throw new AIAnalyzerError('OpenAI API key is invalid or unauthorized', causeData);
-      }
-      if (status === 429) {
-        throw new AIAnalyzerError('OpenAI rate limit hit', causeData);
-      }
-      throw new AIAnalyzerError(`OpenAI returned status ${status}`, causeData);
+      await handleHttpError(response);
     }
 
-    // Parse response
     const responseData = await response.json() as unknown;
-    if (
-      typeof responseData !== 'object' ||
-      responseData === null
-    ) {
-      throw new ValidationError('AI response body is not an object');
-    }
-
-    const data = responseData as Record<string, unknown>;
-    const choices = data['choices'];
-    if (!Array.isArray(choices) || choices.length === 0) {
-      throw new ValidationError('AI response contains no choices');
-    }
-
-    const firstChoice = choices[0] as Record<string, unknown>;
-    const messageObj = firstChoice['message'] as Record<string, unknown> | undefined;
-    const content = messageObj?.['content'];
-
-    if (typeof content !== 'string') {
-      throw new ValidationError('AI response choice has no content string');
-    }
-
-    // Parse JSON content
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(content);
-    } catch (caught: unknown) {
-      throw new ValidationError('AI response was not valid JSON', sanitizeCause(caught));
-    }
-
-    // Validate and construct assessment
-    const validated = applyPromptInjectionGuard(validateAssessment(parsed), message);
+    const content = extractContent(responseData);
+    const validated = parseAndValidate(content, message);
 
     return {
       ...validated,
@@ -343,7 +361,7 @@ export async function analyzeWithAI(
       analyzedAt: new Date(),
     };
   } finally {
-    abortSignal.cleanup();
+    timeout.cleanup();
   }
 }
 
