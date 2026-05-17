@@ -41,6 +41,7 @@ Guidelines:
 - Respond ONLY with the JSON object. No prose before or after. No markdown code fences.`;
 
 const VALID_SEVERITIES = new Set(['low', 'medium', 'high']);
+const MAX_SANITIZED_VALUE_LENGTH = 120;
 const PROMPT_INJECTION_REASON: FlaggedReason = {
   category: 'other',
   description: 'Message contains instructions attempting to override the analyzer',
@@ -87,6 +88,12 @@ function sanitizeCause(caught: unknown): unknown {
       return safe;
     }
 
+    if ('receivedValue' in obj) {
+      return {
+        receivedValue: sanitizeValidationValue(obj['receivedValue']),
+      };
+    }
+
     return undefined;
   }
 
@@ -96,6 +103,10 @@ function sanitizeCause(caught: unknown): unknown {
   }
 
   return undefined;
+}
+
+function sanitizeValidationValue(value: unknown): string {
+  return String(value).slice(0, MAX_SANITIZED_VALUE_LENGTH);
 }
 
 /**

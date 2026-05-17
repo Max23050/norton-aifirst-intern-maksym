@@ -152,6 +152,15 @@ describe('analyzeHeuristic', () => {
       expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(true);
     });
 
+    it('flags support impersonation asking for a verification code', () => {
+      const result = analyzeHeuristic(
+        'Hi, this is Microsoft support. We noticed unusual activity on your account. Please reply with your verification code.',
+      );
+      expect(result.riskLevel).toBe('suspicious');
+      expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(true);
+      expect(result.flaggedReasons.some((r) => r.category === 'impersonation')).toBe(true);
+    });
+
     it('flags a non-negated request to share a verification code', () => {
       const result = analyzeHeuristic(
         'Please share your verification code with me to verify your account.',

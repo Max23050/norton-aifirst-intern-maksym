@@ -11,7 +11,7 @@
  * - Missing fields with defaults (permissive validation)
  * - Missing API key (placeholder value)
  * - AbortSignal (already aborted)
- * - Error sanitization (no API key leak in cause chain)
+ * - Error sanitization (safe validation cause, no API key leak in cause chain)
  * - Timeout with and without caller AbortSignal (fetch hangs, fake timers)
  * - Prompt injection input isolation and deterministic guardrail
  */
@@ -260,6 +260,32 @@ describe('analyzeWithAI', () => {
 
     expect(caught).toBeInstanceOf(ValidationError);
     expect((caught as ValidationError).message).toContain('invalid riskLevel');
+  });
+
+  it('preserves safe validation cause without leaking the API key', async () => {
+    const testKey = 'sk-test-key-123';
+    envMock.OPENAI_API_KEY = testKey;
+    const content = JSON.stringify({ riskLevel: 'extreme', confidence: 80 });
+    mockFetch.mockResolvedValueOnce(makeOpenAIResponse(content));
+
+    let caught: unknown;
+    try {
+      await analyzeWithAI('test');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ValidationError);
+    expect((caught as ValidationError).cause).toEqual({
+      receivedValue: 'extreme',
+    });
+
+    const serialized = JSON.stringify(
+      caught,
+      Object.getOwnPropertyNames(caught as object),
+    );
+    expect(serialized).not.toContain(testKey);
+    expect(serialized).not.toContain('sk-test');
   });
 
   it('returns defaults when optional fields are missing', async () => {
