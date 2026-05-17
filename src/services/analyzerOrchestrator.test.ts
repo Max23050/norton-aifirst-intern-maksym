@@ -5,7 +5,7 @@
  * - Merge risk, confidence, source, explanations, and timestamps
  * - More cautious risk-level precedence
  * - Weighted confidence averaging
- * - Flagged reason union and deduplication with severity precedence
+ * - Flagged reason union and category deduplication with severity precedence
  * - AnalyzerError and DOMException AbortError fallback behavior
  * - Unexpected native error rethrow behavior
  * - AbortSignal passthrough to the AI analyzer
@@ -243,29 +243,29 @@ describe('analyze', () => {
     expect(result.confidence).toBe(86);
   });
 
-  it('dedupes reasons by category and case-insensitive description while keeping higher severity', async () => {
+  it('dedupes reasons by category while keeping the higher severity reason', async () => {
     const heuristic = makeAssessment({
       riskLevel: 'suspicious',
       confidence: 70,
       flaggedReasons: [
-        makeReason('url', 'Bit.ly URL', 'medium'),
+        makeReason('urgency', 'Pressures immediate action', 'low'),
       ],
     });
     const ai = makeAssessment({
       riskLevel: 'suspicious',
       confidence: 90,
       flaggedReasons: [
-        makeReason('url', 'BIT.LY URL', 'high'),
+        makeReason('urgency', 'Creates account pressure immediately', 'medium'),
       ],
       source: 'ai',
     });
     mockAnalyzeHeuristic.mockReturnValueOnce(heuristic);
     mockAnalyzeWithAI.mockResolvedValueOnce(ai);
 
-    const result = await analyze('Contains bit.ly');
+    const result = await analyze('Dear customer, confirm now');
 
     expect(result.flaggedReasons).toEqual([
-      makeReason('url', 'BIT.LY URL', 'high'),
+      makeReason('urgency', 'Creates account pressure immediately', 'medium'),
     ]);
   });
 

@@ -91,17 +91,16 @@ function clampConfidence(confidence: number): number {
 }
 
 function dedupeReasons(reasons: FlaggedReason[]): FlaggedReason[] {
-  const deduped = new Map<string, FlaggedReason>();
+  const deduped = new Map<FlaggedReason['category'], FlaggedReason>();
 
   for (const reason of reasons) {
-    const key = `${reason.category}\u0000${reason.description.toLowerCase()}`;
-    const existing = deduped.get(key);
+    const existing = deduped.get(reason.category);
 
     if (
       !existing ||
-      SEVERITY_ORDER[reason.severity] > SEVERITY_ORDER[existing.severity]
+      SEVERITY_ORDER[reason.severity] >= SEVERITY_ORDER[existing.severity]
     ) {
-      deduped.set(key, reason);
+      deduped.set(reason.category, reason);
     }
   }
 
