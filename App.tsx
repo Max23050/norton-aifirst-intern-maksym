@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Clipboard,
   KeyboardAvoidingView,
@@ -28,12 +28,6 @@ export default function App() {
   const isAnalyzing = state.status === 'analyzing';
   const submitDisabled = message.trim().length === 0;
   const errorMessage = localError ?? (state.status === 'error' ? state.error : undefined);
-
-  useEffect(() => {
-    if (state.status === 'success') {
-      console.log('Analysis source:', state.data.source);
-    }
-  }, [state]);
 
   const handleMessageChange = useCallback(
     (nextMessage: string) => {
