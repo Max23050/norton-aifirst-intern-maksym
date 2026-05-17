@@ -1,6 +1,7 @@
 /**
  * AI-generated test cases:
  * - All SAFE_MESSAGES / SUSPICIOUS_MESSAGES / DANGEROUS_MESSAGES fixture loops
+ * - AI_GATE_REQUIRED_MESSAGES stay low-confidence enough for orchestrator AI review
  * - Edge case tests (empty, whitespace, very short, very long)
  * - Confidence cap for medium/long no-hit messages
  * - extractUrls extraction, punctuation, email filtering
@@ -17,6 +18,7 @@ import {
   SAFE_MESSAGES,
   SUSPICIOUS_MESSAGES,
   DANGEROUS_MESSAGES,
+  AI_GATE_REQUIRED_MESSAGES,
   EDGE_CASE_MESSAGES,
 } from '@/__fixtures__/scamMessages';
 import {
@@ -63,6 +65,19 @@ describe('analyzeHeuristic', () => {
       const notSafe = results.filter((r) => r.riskLevel !== 'safe');
       expect(notSafe.length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  describe('AI gate required messages', () => {
+    it.each(AI_GATE_REQUIRED_MESSAGES.map((m, i) => [i, m]))(
+      'keeps AI_GATE_REQUIRED_MESSAGES[%i] below the heuristic early-exit threshold',
+      (_index, message) => {
+        const result = analyzeHeuristic(message as string);
+
+        expect(result.riskLevel).toBe('safe');
+        expect(result.confidence).toBeLessThan(85);
+        expect(result.flaggedReasons.some((r) => r.category === 'impersonation')).toBe(true);
+      },
+    );
   });
 
   describe('edge cases', () => {

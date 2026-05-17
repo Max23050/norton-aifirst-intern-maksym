@@ -20,6 +20,9 @@ export const SUSPICIOUS_MESSAGES = [
   'Your package is delayed. Track here: https://courier-update.info/track',
   'Verify your account to continue using our services: www.account-verify-now.com',
   'Limited time offer! 50% off premium membership. Click: http://deals-now.top/x',
+] as const;
+
+export const AI_GATE_REQUIRED_MESSAGES = [
   'Hi, this is John from the bank. Please call us back at your earliest convenience.',
 ] as const;
 

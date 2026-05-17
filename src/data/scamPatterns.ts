@@ -363,6 +363,16 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
 
   // ── Impersonation patterns ────────────────────────────────────
   {
+    id: 'impersonation.generic-bank-intro',
+    kind: 'regex',
+    category: 'impersonation',
+    severity: 'low',
+    weight: 12,
+    description: 'Claims to represent a bank without verifiable context',
+    pattern: /\b(?:(?:hi|hello)[\s,]+)?this is\b.{0,40}\bfrom (?:the|your) bank\b/i,
+    uniqueMatch: true,
+  },
+  {
     id: 'impersonation.brand',
     kind: 'keyword',
     category: 'impersonation',
