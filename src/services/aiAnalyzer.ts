@@ -1,0 +1,297 @@
+// SECURITY: This module handles a credential (OpenAI API key). All thrown
+// errors are sanitized via sanitizeCause() before construction. Do not add
+// any throw site that bypasses this — crash reporters walk the cause chain
+// and would otherwise leak the bearer token to logs.
+
+import { OPENAI_API_KEY } from '@env';
+import type { RiskAssessment, RiskLevel, FlaggedReason, ReasonCategory } from '@/models';
+import { RISK_LEVELS, REASON_CATEGORIES } from '@/models';
+import { AIAnalyzerError, ValidationError } from './errors';
+
+// ── Constants ──────────────��────────────────────────────────────
+
+const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
+const MODEL = 'gpt-4o-mini';
+const REQUEST_TIMEOUT_MS = 15000;
+
+const SYSTEM_PROMPT = `You are a cybersecurity assistant analyzing text messages for scam indicators. Your job is to assess whether a given message is a legitimate communication or a scam (phishing, smishing, fraud, social engineering).
+
+You will respond ONLY with valid JSON matching this exact schema:
+{
+  "riskLevel": "safe" | "suspicious" | "dangerous",
+  "confidence": <integer 0-100>,
+  "explanation": "<1-2 sentence summary of your verdict>",
+  "flaggedReasons": [
+    {
+      "category": "url" | "urgency" | "credentials" | "financial" | "impersonation" | "grammar" | "other",
+      "description": "<short, specific reason in your own words>",
+      "severity": "low" | "medium" | "high"
+    }
+  ]
+}
+
+Guidelines:
+- "safe": no scam indicators. Normal personal, transactional, or commercial messages.
+- "suspicious": one or two soft signals (mild urgency, generic greeting) but not conclusive.
+- "dangerous": clear scam indicators (credential requests, suspicious URLs, payment demands, impersonation).
+- Confidence reflects how certain you are of the label, NOT how dangerous the message is. A clean safe message has confidence ~95. A borderline case has lower confidence.
+- flaggedReasons should be specific to THIS message. Do not list generic scam patterns; cite what you actually see.
+- If the message is empty, gibberish, or too short to analyze, return "safe" with low confidence and an explanation saying so.
+- Respond ONLY with the JSON object. No prose before or after. No markdown code fences.`;
+
+const VALID_SEVERITIES = new Set(['low', 'medium', 'high']);
+
+// ── Security helpers ────────────���───────────────────────────────
+
+/**
+ * Extracts only safe, non-credential fields from a caught value.
+ * Never passes raw Error instances, Request/Response objects, headers,
+ * request bodies, env vars, or API key substrings into error causes.
+ */
+function sanitizeCause(caught: unknown): unknown {
+  if (caught === null || caught === undefined) return undefined;
+
+  // For fetch abort errors or generic Errors, extract only the message
+  if (caught instanceof Error) {
+    return { message: caught.message };
+  }
+
+  // For structured objects (like parsed response bodies), only pass safe fields
+  if (typeof caught === 'object') {
+    const obj = caught as Record<string, unknown>;
+
+    // If it looks like an HTTP error context we built
+    if (typeof obj['status'] === 'number') {
+      const safe: Record<string, unknown> = { status: obj['status'] };
+      if (typeof obj['statusText'] === 'string') {
+        safe['statusText'] = obj['statusText'];
+      }
+      if (typeof obj['body'] === 'string') {
+        safe['body'] = obj['body'];
+      }
+      return safe;
+    }
+
+    return undefined;
+  }
+
+  // Primitives (string, number) are safe
+  if (typeof caught === 'string' || typeof caught === 'number') {
+    return caught;
+  }
+
+  return undefined;
+}
+
+/**
+ * Attempts to read an OpenAI error response body safely.
+ * Returns the body text only if it's under 1KB and contains an `error` field.
+ */
+async function safeReadErrorBody(response: Response): Promise<string | undefined> {
+  try {
+    const text = await response.text();
+    if (text.length > 1024) return undefined;
+    const parsed = JSON.parse(text) as unknown;
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'error' in (parsed as Record<string, unknown>)
+    ) {
+      return text;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// ── Validation ──────────────────────────────────────────────────
+
+function validateAssessment(obj: unknown): Omit<RiskAssessment, 'source' | 'analyzedAt'> {
+  if (typeof obj !== 'object' || obj === null) {
+    throw new ValidationError('AI response is not a valid object', sanitizeCause(obj));
+  }
+
+  const data = obj as Record<string, unknown>;
+
+  // riskLevel — non-recoverable if invalid
+  const rawRiskLevel = data['riskLevel'];
+  if (
+    typeof rawRiskLevel !== 'string' ||
+    !(RISK_LEVELS as readonly string[]).includes(rawRiskLevel)
+  ) {
+    throw new ValidationError(
+      `AI returned invalid riskLevel: ${String(rawRiskLevel)}`,
+      sanitizeCause({ receivedValue: rawRiskLevel }),
+    );
+  }
+  const riskLevel = rawRiskLevel as RiskLevel;
+
+  // confidence — default 50, clamp, round
+  let confidence = 50;
+  if (typeof data['confidence'] === 'number' && !Number.isNaN(data['confidence'])) {
+    confidence = Math.round(Math.min(100, Math.max(0, data['confidence'])));
+  }
+
+  // explanation — default if missing
+  let explanation = 'AI analysis complete.';
+  if (typeof data['explanation'] === 'string' && data['explanation'].trim().length > 0) {
+    explanation = data['explanation'].trim().slice(0, 500);
+  }
+
+  // flaggedReasons — default [] if missing
+  let flaggedReasons: FlaggedReason[] = [];
+  if (Array.isArray(data['flaggedReasons'])) {
+    flaggedReasons = (data['flaggedReasons'] as unknown[])
+      .filter((item): item is Record<string, unknown> =>
+        typeof item === 'object' && item !== null,
+      )
+      .filter((item) =>
+        typeof item['description'] === 'string' &&
+        (item['description'] as string).trim().length > 0,
+      )
+      .map((item) => {
+        const rawCategory = item['category'];
+        const category: ReasonCategory = (
+          typeof rawCategory === 'string' &&
+          (REASON_CATEGORIES as readonly string[]).includes(rawCategory)
+        )
+          ? rawCategory as ReasonCategory
+          : 'other';
+
+        const rawSeverity = item['severity'];
+        const severity: FlaggedReason['severity'] = (
+          typeof rawSeverity === 'string' && VALID_SEVERITIES.has(rawSeverity)
+        )
+          ? rawSeverity as FlaggedReason['severity']
+          : 'medium';
+
+        return {
+          category,
+          description: (item['description'] as string).trim(),
+          severity,
+        };
+      });
+  }
+
+  return { riskLevel, confidence, explanation, flaggedReasons };
+}
+
+// ── Main export ───────────��─────────────────────────────────────
+
+/**
+ * Analyzes a message for scam indicators using OpenAI's API.
+ * Throws AIAnalyzerError on network/API failures, ValidationError on response parsing issues.
+ */
+export async function analyzeWithAI(
+  message: string,
+  options?: { signal?: AbortSignal },
+): Promise<RiskAssessment> {
+  // Validate API key (never include key value in error messages)
+  if (!OPENAI_API_KEY || OPENAI_API_KEY === 'sk-your-key-here') {
+    throw new AIAnalyzerError('OpenAI API key is missing');
+  }
+
+  // Set up timeout if no external signal provided
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let signal = options?.signal;
+
+  if (!signal) {
+    const controller = new AbortController();
+    signal = controller.signal;
+    timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  }
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(OPENAI_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          response_format: { type: 'json_object' },
+          temperature: 0.2,
+          max_tokens: 500,
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: `Analyze this message:\n\n${message}` },
+          ],
+        }),
+        signal,
+      });
+    } catch (caught: unknown) {
+      const isAbort =
+        caught instanceof Error &&
+        (caught.name === 'AbortError' || caught.message.includes('abort'));
+      const msg = isAbort
+        ? 'OpenAI request timed out or was aborted'
+        : 'OpenAI request failed';
+      throw new AIAnalyzerError(msg, sanitizeCause(caught));
+    }
+
+    // Handle non-2xx responses
+    if (!response.ok) {
+      const status = response.status;
+      const statusText = response.statusText;
+      const body = await safeReadErrorBody(response);
+
+      const causeData = sanitizeCause({ status, statusText, body });
+
+      if (status === 401) {
+        throw new AIAnalyzerError('OpenAI API key is invalid or unauthorized', causeData);
+      }
+      if (status === 429) {
+        throw new AIAnalyzerError('OpenAI rate limit hit', causeData);
+      }
+      throw new AIAnalyzerError(`OpenAI returned status ${status}`, causeData);
+    }
+
+    // Parse response
+    const responseData = await response.json() as unknown;
+    if (
+      typeof responseData !== 'object' ||
+      responseData === null
+    ) {
+      throw new ValidationError('AI response body is not an object');
+    }
+
+    const data = responseData as Record<string, unknown>;
+    const choices = data['choices'];
+    if (!Array.isArray(choices) || choices.length === 0) {
+      throw new ValidationError('AI response contains no choices');
+    }
+
+    const firstChoice = choices[0] as Record<string, unknown>;
+    const messageObj = firstChoice['message'] as Record<string, unknown> | undefined;
+    const content = messageObj?.['content'];
+
+    if (typeof content !== 'string') {
+      throw new ValidationError('AI response choice has no content string');
+    }
+
+    // Parse JSON content
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (caught: unknown) {
+      throw new ValidationError('AI response was not valid JSON', sanitizeCause(caught));
+    }
+
+    // Validate and construct assessment
+    const validated = validateAssessment(parsed);
+
+    return {
+      ...validated,
+      source: 'ai',
+      analyzedAt: new Date(),
+    };
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
