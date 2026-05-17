@@ -1,5 +1,4 @@
 import type { ReasonCategory } from '@/models';
-import { uppercaseRatio } from '@/utils/textAnalysis';
 
 interface BasePattern {
   id: string;
@@ -24,15 +23,20 @@ export interface KeywordPattern extends BasePattern {
   uniqueMatch?: boolean;
 }
 
-/** A pattern that matches via a custom evaluation function. */
-export interface FunctionPattern extends BasePattern {
-  kind: 'function';
-  evaluate: (message: string) => boolean;
+/**
+ * A pattern that matches when a named metric exceeds a threshold.
+ * Pure declarative config — the heuristic analyzer resolves the metric
+ * name to an actual function at match time.
+ */
+export interface ThresholdPattern extends BasePattern {
+  kind: 'threshold';
+  metric: string;
+  threshold: number;
   uniqueMatch?: boolean;
 }
 
 /** Discriminated union of all pattern types in the catalogue. */
-export type ScamPattern = RegexPattern | KeywordPattern | FunctionPattern;
+export type ScamPattern = RegexPattern | KeywordPattern | ThresholdPattern;
 
 /** Curated catalogue of scam indicator patterns used by the heuristic analyzer. */
 export const SCAM_PATTERNS: readonly ScamPattern[] = [
@@ -287,12 +291,13 @@ export const SCAM_PATTERNS: readonly ScamPattern[] = [
   // ── Grammar patterns ──────────────────────────────────────────
   {
     id: 'grammar.excessive-caps',
-    kind: 'function',
+    kind: 'threshold',
     category: 'grammar',
     severity: 'low',
     weight: 5,
     description: 'Uses excessive uppercase text',
-    evaluate: (message: string) => uppercaseRatio(message) > 0.6,
+    metric: 'uppercaseRatio',
+    threshold: 0.6,
     uniqueMatch: true,
   },
   {

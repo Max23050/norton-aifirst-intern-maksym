@@ -69,6 +69,13 @@ const URL_REGEX = new RegExp(
 
 const IP_HOST_REGEX = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 
+// Metric registry — maps declarative metric names from ThresholdPattern
+// to actual evaluation functions. Keeps matching logic in the service layer
+// while the data layer stays pure config.
+const THRESHOLD_METRICS: Record<string, (message: string) => number> = {
+  uppercaseRatio,
+};
+
 const SEVERITY_RANK: Record<FlaggedReason['severity'], number> = {
   low: 0,
   medium: 1,
@@ -279,8 +286,9 @@ export function analyzeHeuristic(message: string): RiskAssessment {
           isMatch = hasPlainHttp;
           break;
       }
-    } else if (pat.kind === 'function') {
-      isMatch = pat.evaluate(message);
+    } else if (pat.kind === 'threshold') {
+      const metricFn = THRESHOLD_METRICS[pat.metric];
+      isMatch = metricFn !== undefined && metricFn(message) > pat.threshold;
     } else if (pat.kind === 'regex') {
       pat.pattern.lastIndex = 0;
       isMatch = pat.pattern.test(message);
