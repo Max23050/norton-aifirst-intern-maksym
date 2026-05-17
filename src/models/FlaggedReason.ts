@@ -1,3 +1,5 @@
+import type { Severity } from './Severity';
+
 /** Category of a flagged scam indicator. */
 export type ReasonCategory =
   | 'url'
@@ -26,5 +28,5 @@ export interface FlaggedReason {
   /** One-sentence, human-readable explanation of why this was flagged. */
   description: string;
   /** How strongly this indicator suggests a scam. */
-  severity: 'low' | 'medium' | 'high';
+  severity: Severity;
 }

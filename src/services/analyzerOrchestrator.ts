@@ -1,4 +1,4 @@
-import type { FlaggedReason, RiskAssessment, RiskLevel } from '@/models';
+import type { FlaggedReason, RiskAssessment, RiskLevel, Severity } from '@/models';
 import { analyzeWithAI } from '@/services/aiAnalyzer';
 import { assertConfidence } from '@/services/confidence';
 import { AnalyzerError } from '@/services/errors';
@@ -10,7 +10,7 @@ const RISK_ORDER: Record<RiskLevel, number> = {
   dangerous: 2,
 };
 
-const SEVERITY_ORDER: Record<FlaggedReason['severity'], number> = {
+const SEVERITY_ORDER: Record<Severity, number> = {
   low: 0,
   medium: 1,
   high: 2,

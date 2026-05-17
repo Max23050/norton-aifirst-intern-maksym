@@ -1,4 +1,4 @@
-import type { RiskLevel, FlaggedReason, RiskAssessment } from '@/models';
+import type { RiskLevel, FlaggedReason, RiskAssessment, Severity } from '@/models';
 import {
   SCAM_PATTERNS,
   URL_SHORTENER_HOSTS,
@@ -15,7 +15,7 @@ export { uppercaseRatio } from '@/utils/textAnalysis';
 interface MatchedPattern {
   id: string;
   category: ScamPattern['category'];
-  severity: FlaggedReason['severity'];
+  severity: Severity;
   weight: number;
   description: string;
 }
@@ -78,7 +78,7 @@ const THRESHOLD_METRICS: Record<string, (message: string) => number> = {
   uppercaseRatio,
 };
 
-const SEVERITY_RANK: Record<FlaggedReason['severity'], number> = {
+const SEVERITY_RANK: Record<Severity, number> = {
   low: 0,
   medium: 1,
   high: 2,

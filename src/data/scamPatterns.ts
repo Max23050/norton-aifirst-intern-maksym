@@ -1,4 +1,4 @@
-import type { ReasonCategory } from '@/models';
+import type { ReasonCategory, Severity } from '@/models';
 
 export const URL_SHORTENER_HOSTS = [
   'bit.ly',
@@ -17,7 +17,7 @@ export const URL_SHORTENER_PATTERN_SOURCE = URL_SHORTENER_HOSTS
 interface BasePattern {
   id: string;
   category: ReasonCategory;
-  severity: 'low' | 'medium' | 'high';
+  severity: Severity;
   weight: number;
   description: string;
   tags?: readonly string[];
