@@ -48,3 +48,5 @@ yarn-error.*
 *.key
 *.mobileprovision
 *.orig.*
+
+.claude/
