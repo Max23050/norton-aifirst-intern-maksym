@@ -246,7 +246,20 @@ function assertApiKeyPresent(): void {
   }
 }
 
-async function fetchCompletion(message: string, signal: AbortSignal): Promise<Response> {
+function buildRequestBody(message: string): string {
+  return JSON.stringify({
+    model: MODEL,
+    response_format: { type: 'json_object' },
+    temperature: 0.2,
+    max_tokens: 500,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: buildUserMessageContent(message) },
+    ],
+  });
+}
+
+async function postChatCompletion(body: string, signal: AbortSignal): Promise<Response> {
   try {
     return await fetch(OPENAI_ENDPOINT, {
       method: 'POST',
@@ -254,16 +267,7 @@ async function fetchCompletion(message: string, signal: AbortSignal): Promise<Re
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
       },
-      body: JSON.stringify({
-        model: MODEL,
-        response_format: { type: 'json_object' },
-        temperature: 0.2,
-        max_tokens: 500,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildUserMessageContent(message) },
-        ],
-      }),
+      body,
       signal,
     });
   } catch (caught: unknown) {
@@ -272,15 +276,27 @@ async function fetchCompletion(message: string, signal: AbortSignal): Promise<Re
 }
 
 function handleFetchError(caught: unknown): AIAnalyzerError {
-  const isAbort =
-    caught instanceof Error && caught.name === 'AbortError';
-  const msg = isAbort
+  const message = isAbortError(caught)
     ? 'OpenAI request timed out or was aborted'
     : 'OpenAI request failed';
-  return new AIAnalyzerError(msg, sanitizeCause(caught));
+
+  return new AIAnalyzerError(message, sanitizeCause(caught));
 }
 
-async function handleHttpError(response: Response): Promise<never> {
+function isAbortError(caught: unknown): boolean {
+  return (
+    typeof caught === 'object' &&
+    caught !== null &&
+    'name' in caught &&
+    caught.name === 'AbortError'
+  );
+}
+
+async function ensureOk(response: Response): Promise<void> {
+  if (response.ok) {
+    return;
+  }
+
   const status = response.status;
   const statusText = response.statusText;
   const body = await safeReadErrorBody(response);
@@ -295,7 +311,9 @@ async function handleHttpError(response: Response): Promise<never> {
   throw new AIAnalyzerError(`OpenAI returned status ${status}`, causeData);
 }
 
-function extractContent(responseData: unknown): string {
+async function extractContent(response: Response): Promise<string> {
+  const responseData = await response.json() as unknown;
+
   if (typeof responseData !== 'object' || responseData === null) {
     throw new ValidationError('AI response body is not an object');
   }
@@ -306,7 +324,11 @@ function extractContent(responseData: unknown): string {
     throw new ValidationError('AI response contains no choices');
   }
 
-  const firstChoice = choices[0] as Record<string, unknown>;
+  const firstChoice = choices[0];
+  if (typeof firstChoice !== 'object' || firstChoice === null) {
+    throw new ValidationError('AI response choice is not an object');
+  }
+
   const messageObj = firstChoice['message'] as Record<string, unknown> | undefined;
   const content = messageObj?.['content'];
 
@@ -317,18 +339,12 @@ function extractContent(responseData: unknown): string {
   return content;
 }
 
-function parseAndValidate(
-  content: string,
-  message: string,
-): Omit<RiskAssessment, 'source' | 'analyzedAt'> {
-  let parsed: unknown;
+function parseAssessmentJson(content: string): unknown {
   try {
-    parsed = JSON.parse(content);
+    return JSON.parse(content) as unknown;
   } catch (caught: unknown) {
     throw new ValidationError('AI response was not valid JSON', sanitizeCause(caught));
   }
-
-  return applyPromptInjectionGuard(validateAssessment(parsed), message);
 }
 
 // ── Main export ────────────────────────────────────────────────
@@ -345,15 +361,13 @@ export async function analyzeWithAI(
 
   const timeout = createTimeoutSignal(options?.signal);
   try {
-    const response = await fetchCompletion(message, timeout.signal);
+    const body = buildRequestBody(message);
+    const response = await postChatCompletion(body, timeout.signal);
+    await ensureOk(response);
 
-    if (!response.ok) {
-      await handleHttpError(response);
-    }
-
-    const responseData = await response.json() as unknown;
-    const content = extractContent(responseData);
-    const validated = parseAndValidate(content, message);
+    const content = await extractContent(response);
+    const parsed = parseAssessmentJson(content);
+    const validated = applyPromptInjectionGuard(validateAssessment(parsed), message);
 
     return {
       ...validated,

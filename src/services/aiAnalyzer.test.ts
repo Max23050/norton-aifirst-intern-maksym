@@ -6,6 +6,7 @@
  * - 429 rate limit response
  * - Generic 500 response
  * - Invalid JSON in response content
+ * - Malformed choices payloads
  * - Invalid riskLevel (schema mismatch)
  * - Missing fields with defaults (permissive validation)
  * - Missing API key (placeholder value)
@@ -39,6 +40,17 @@ function makeOpenAIResponse(content: string): Response {
     statusText: 'OK',
     json: () => Promise.resolve(JSON.parse(body)),
     text: () => Promise.resolve(body),
+    headers: new Headers(),
+  } as unknown as Response;
+}
+
+function makeOpenAIResponseBody(body: unknown): Response {
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
     headers: new Headers(),
   } as unknown as Response;
 }
@@ -221,6 +233,20 @@ describe('analyzeWithAI', () => {
     expect((caught as ValidationError).message).toBe('AI response was not valid JSON');
   });
 
+  it('throws ValidationError when first choice is not an object', async () => {
+    mockFetch.mockResolvedValueOnce(makeOpenAIResponseBody({ choices: [null] }));
+
+    let caught: unknown;
+    try {
+      await analyzeWithAI('test');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ValidationError);
+    expect((caught as ValidationError).message).toBe('AI response choice is not an object');
+  });
+
   it('throws ValidationError when riskLevel is invalid', async () => {
     const content = JSON.stringify({ riskLevel: 'extreme', confidence: 80 });
     mockFetch.mockResolvedValueOnce(makeOpenAIResponse(content));
@@ -290,6 +316,20 @@ describe('analyzeWithAI', () => {
     let caught: unknown;
     try {
       await analyzeWithAI('test', { signal: controller.signal });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(AIAnalyzerError);
+    expect((caught as AIAnalyzerError).message).toContain('aborted');
+  });
+
+  it('maps non-Error AbortError-shaped values to AIAnalyzerError', async () => {
+    mockFetch.mockRejectedValueOnce({ name: 'AbortError' });
+
+    let caught: unknown;
+    try {
+      await analyzeWithAI('test');
     } catch (err) {
       caught = err;
     }
