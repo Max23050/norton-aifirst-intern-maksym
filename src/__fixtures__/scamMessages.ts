@@ -11,6 +11,8 @@ export const SAFE_MESSAGES = [
   'Reminder: dentist appointment tomorrow at 10am. Reply C to confirm.',
   'Thanks for your order! Tracking: https://www.amazon.com/orders',
   'Mom called. Call her back when you can.',
+  'G-482917 is your Google verification code.',
+  'Your Chase security code is 839204. Do not share this code with anyone.',
 ] as const;
 
 export const SUSPICIOUS_MESSAGES = [

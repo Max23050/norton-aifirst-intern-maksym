@@ -108,6 +108,28 @@ describe('analyzeHeuristic', () => {
     });
   });
 
+  describe('OTP false positive prevention', () => {
+    it('returns safe for a legitimate Google 2FA SMS', () => {
+      const result = analyzeHeuristic('G-482917 is your Google verification code.');
+      expect(result.riskLevel).toBe('safe');
+    });
+
+    it('returns safe for a legitimate bank security code', () => {
+      const result = analyzeHeuristic(
+        'Your Chase security code is 839204. Do not share this code with anyone.',
+      );
+      expect(result.riskLevel).toBe('safe');
+    });
+
+    it('flags a message that solicits a verification code', () => {
+      const result = analyzeHeuristic(
+        'We detected suspicious activity. Reply with the code we just sent to verify your identity.',
+      );
+      expect(result.riskLevel).not.toBe('safe');
+      expect(result.flaggedReasons.some((r) => r.category === 'credentials')).toBe(true);
+    });
+  });
+
   describe('co-occurrence multiplier', () => {
     it('scores higher when both brand impersonation and suspicious URL are present', () => {
       const urlOnly = analyzeHeuristic('Check this: http://192.168.1.1/page');
