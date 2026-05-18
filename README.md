@@ -224,7 +224,6 @@ Strict TypeScript — no any, no unknown unless absolutely necessary
 Propose the plan first — list the files you'll create and a 1-line description of each. Do not write code yet. Wait for my approval.
 ```
 
-</details>
 
 **My evaluation:**
 - Plan matched spec exactly, approved with "ok, do it"
