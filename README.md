@@ -4,6 +4,21 @@ Option B: Scam Message Detector prototype for the Gen Digital Norton Mobile Engi
 
 This is a single-screen React Native and Expo app where a user can paste or type a suspicious SMS, email snippet, or URL and receive a structured risk assessment inspired by Norton Genie. The result includes a risk level, confidence score, short explanation, and specific flagged reasons.
 
+## Development Approach
+
+Before writing any code, I focused on product research and AI behavior constraints to ensure a high-quality output.
+
+**1. Product Research (`exploration-notes.md`)**
+Following the assignment guidelines, I started by installing and exploring the Norton 360 iOS app. I spent time analyzing the UX patterns. I took detailed notes on the visual language, risk-level presentation, and tone of voice to ensure my prototype felt like a natural extension of the Norton ecosystem. My raw product observations are documented in the `exploration-notes.md` file.
+
+**2. System Prompting (`CLAUDE.md`)**
+To prevent the AI assistant (Claude Code) from hallucinating file structures or violating architectural boundaries, I wrote a strict `CLAUDE.md` file before starting the implementation. This file acted as a standing system prompt for the AI agent, explicitly defining:
+- The strict one-way dependency graph.
+- The "MUST / MUST NOT" responsibilities for every module (e.g., components must be pure, services must not touch React state).
+- The sequential gate merge strategy for the heuristic and AI results.
+
+Using `CLAUDE.md` as a persistent context window ensured the AI generated production-ready, constrained code rather than generic boilerplate.
+
 ## Project Overview
 
 The app uses a hybrid analyzer:
@@ -86,6 +101,20 @@ npm test
 ```
 
 The repository also includes a GitHub Actions workflow that runs typecheck, lint, and tests on pull requests and pushes to `main`.
+
+## Screenshots
+
+Input screen:
+
+![Input screen](docs/screenshots/input.png)
+
+Result screen:
+
+![Result screen](docs/screenshots/result.png)
+
+## Demo Video
+
+Video link: `https://drive.google.com/file/d/1tDCM-ci6s203E9k53196lI6BdPJHO4eJ/view?usp=sharing`.
 
 ## Architecture
 
