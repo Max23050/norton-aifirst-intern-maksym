@@ -192,12 +192,10 @@ beats trust.
 **Prompt:** 
 > I need to create the type models for this project. Read CLAUDE.md first if you haven't already.
 Create the following files in src/models/:
-
 RiskLevel.ts — a string union type with values 'safe' | 'suspicious' | 'dangerous', exported as a type alias. Also export a const array RISK_LEVELS containing all values, typed as readonly RiskLevel[], useful for iteration and validation.
 FlaggedReason.ts — a ReasonCategory string union covering: 'url', 'urgency', 'credentials', 'financial', 'impersonation', 'grammar', 'other'. Also export a FlaggedReason interface with: category: ReasonCategory, description: string (1 sentence, human-readable), and severity: 'low' | 'medium' | 'high'. Export a const array REASON_CATEGORIES for iteration.
 AnalysisRequest.ts — an interface with: message: string (the text to analyze), type: 'sms' | 'email' | 'url' | 'unknown' (optional, default 'unknown' — let consumers pass it or leave it out), submittedAt: Date.
 RiskAssessment.ts — the result type, an interface with:
-
 riskLevel: RiskLevel
 confidence: number (0–100 integer, document the range in a JSDoc comment)
 explanation: string (1–2 sentence summary the UI will show)
@@ -259,7 +257,7 @@ You cannot trust AI-generated regex blindly. Always mentally dry-run edge cases 
 > I need to implement the OpenAI-backed analyzer service and its supporting error types. Read CLAUDE.md first.
 Files to create
 
-src/services/errors.ts — typed error classes
+>src/services/errors.ts — typed error classes
 src/services/aiAnalyzer.ts — the OpenAI client
 src/services/aiAnalyzer.test.ts — co-located tests
 
