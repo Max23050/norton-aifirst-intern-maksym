@@ -128,7 +128,7 @@ The app does not retry AI requests. Unexpected programmer errors should be rethr
 **Phase:** Architecture / setup
 **Tool used:** Claude (Opus 4.7)
 
-**Context I provided:**
+**Prompt:**
 > I'm building a React Native + Expo scam message detector. The app analyzes pasted SMS/email/URL text and returns a risk level (safe/suspicious/dangerous), confidence score, and flagged reasons. I plan to combine local heuristics (regex, keyword lists) with an OpenAI GPT-4o-mini call, then merge the results. Constraints: TypeScript, must be unit-testable, must hide API key, single screen UX. Propose a folder structure and module boundaries. For each module, state its single responsibility and what it should NOT do.
 
 **What the AI produced:**
@@ -189,7 +189,8 @@ beats trust.
 **Tool:** Claude Code (Opus 4.7)
 **Phase:** Implementation — type models
 
-**Prompt:** I need to create the type models for this project. Read CLAUDE.md first if you haven't already.
+**Prompt:** 
+> I need to create the type models for this project. Read CLAUDE.md first if you haven't already.
 Create the following files in src/models/:
 
 RiskLevel.ts — a string union type with values 'safe' | 'suspicious' | 'dangerous', exported as a type alias. Also export a const array RISK_LEVELS containing all values, typed as readonly RiskLevel[], useful for iteration and validation.
@@ -234,7 +235,7 @@ Propose the plan first — list the files you'll create and a 1-line description
 
 
 **Prompt:**
-Give me a categorized list of textual scam indicators that a heuristic analyzer should detect in SMS and email scams. Group them as: (a) URL-based (b) urgency/pressure language (c) credential/financial requests (d) impersonation signals (e) grammar/formatting red flags. For each category, give 3-5 specific patterns or example phrases. Cite the type of scam each category typically appears in. I'll use this list to design my regex + keyword rules.
+> Give me a categorized list of textual scam indicators that a heuristic analyzer should detect in SMS and email scams. Group them as: (a) URL-based (b) urgency/pressure language (c) credential/financial requests (d) impersonation signals (e) grammar/formatting red flags. For each category, give 3-5 specific patterns or example phrases. Cite the type of scam each category typically appears in. I'll use this list to design my regex + keyword rules.
 
 **What the AI produced:**
 The AI provided a highly detailed taxonomy of phishing and scam patterns. Unprompted, it also provided a "Meta-note on scoring".
@@ -255,7 +256,7 @@ You cannot trust AI-generated regex blindly. Always mentally dry-run edge cases 
 **Phase:** Implementation (AI Analyzer & Errors)
 
 **Prompt:**
-I need to implement the OpenAI-backed analyzer service and its supporting error types. Read CLAUDE.md first.
+> I need to implement the OpenAI-backed analyzer service and its supporting error types. Read CLAUDE.md first.
 Files to create
 
 src/services/errors.ts — typed error classes
