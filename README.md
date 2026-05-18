@@ -314,13 +314,13 @@ You are a cybersecurity assistant analyzing text messages for scam indicators. Y
 }
 
 >Guidelines:
-- "safe": no scam indicators. Normal personal, transactional, or commercial messages.
-- "suspicious": one or two soft signals (mild urgency, generic greeting) but not conclusive.
-- "dangerous": clear scam indicators (credential requests, suspicious URLs, payment demands, impersonation).
-- Confidence reflects how certain you are of the label, NOT how dangerous the message is. A clean safe message has confidence ~95. A borderline case has lower confidence.
-- flaggedReasons should be specific to THIS message. Do not list generic scam patterns; cite what you actually see.
-- If the message is empty, gibberish, or too short to analyze, return "safe" with low confidence and an explanation saying so.
-- Respond ONLY with the JSON object. No prose before or after. No markdown code fences.
+>- "safe": no scam indicators. Normal personal, transactional, or commercial messages.
+>- "suspicious": one or two soft signals (mild urgency, generic greeting) but not conclusive.
+>- "dangerous": clear scam indicators (credential requests, suspicious URLs, payment demands, impersonation).
+>- Confidence reflects how certain you are of the label, NOT how dangerous the message is. A clean safe message has confidence ~95. A borderline case has lower confidence.
+>- flaggedReasons should be specific to THIS message. Do not list generic scam patterns; cite what you actually see.
+>- If the message is empty, gibberish, or too short to analyze, return "safe" with low confidence and an explanation saying so.
+>- Respond ONLY with the JSON object. No prose before or after. No markdown code fences.
 
 >Network call: Use native fetch with Authorization: Bearer ${apiKey} and Content-Type: application/json. Pass signal from options through to fetch for cancellation.
 Error handling:
@@ -415,108 +415,46 @@ Flagged credential leakage risk. The OpenAI API key sits in fetch's Authorizatio
 
 **Prompt:**
 
->I need to implement src/services/analyzerOrchestrator.ts and co-located tests. Read CLAUDE.md first, then read src/services/heuristicAnalyzer.ts and src/services/aiAnalyzer.ts to understand the inputs you'll be combining.
-Files to create
+<details>
+<summary><b>Click to expand</b></summary>
 
->src/services/analyzerOrchestrator.ts — the merge logic
-src/services/analyzerOrchestrator.test.ts — co-located tests
+> I need to implement `src/services/analyzerOrchestrator.ts` and co-located tests. Read `CLAUDE.md` first, then read `heuristicAnalyzer.ts` and `aiAnalyzer.ts` to understand the inputs you'll be combining.
+> 
+> **What the orchestrator does** > Single exported function:
+> ```typescript
+> export async function analyze(
+>   message: string,
+>   options?: { signal?: AbortSignal }
+> ): Promise<RiskAssessment>
+> ```
+> 
+> **Behavior is the sequential gate strategy:**
+> - **Step 1:** Run heuristic (synchronous).
+> - **Step 2:** Early-exit decision. If confidence >= 85 AND riskLevel is 'safe' or 'dangerous', return the heuristic result. Skip the AI call entirely to save cost and latency.
+> - **Step 3:** Call AI `analyzeWithAI(message, options)`. If AI call throws (any error from aiAnalyzer, typed or not), catch it, return the heuristic result, but mutate `source: 'heuristic'` and `degraded: true`. Do NOT rethrow.
+> - **Step 4:** Merge (both results available).
+> 
+> ```typescript
+> function mergeAssessments(heuristic: RiskAssessment, ai: RiskAssessment): RiskAssessment
+> ```
+> 
+> **Merge rules:**
+> - **Risk level:** take the more cautious. Implement a helper:
+>   ```typescript
+>   const RISK_ORDER: Record<RiskLevel, number> = { safe: 0, suspicious: 1, dangerous: 2 };
+>   function moreCautious(a: RiskLevel, b: RiskLevel): RiskLevel {
+>     return RISK_ORDER[a] >= RISK_ORDER[b] ? a : b;
+>   }
+>   ```
+> - **Confidence:** weighted average, AI favored: `round(0.6 * ai.confidence + 0.4 * heuristic.confidence)`.
+> - **Flagged reasons:** union, deduped by (category, description) pair case-insensitively. Keep the one with the higher severity (low < medium < high).
+> - **Explanation:** combine both formatted dynamically based on agreement/disagreement.
+> 
+> *(...included 4 specific edge cases to handle and 15 strict test cases to write using jest.mock...)*
+> 
+> **Output format:** Propose the plan first. List specific decisions you're making and any concerns or pushback on the spec. Do not write code until I approve.
 
->What the orchestrator does
-Single exported function:
-typescriptexport async function analyze(
-  message: string,
-  options?: { signal?: AbortSignal }
-): Promise<RiskAssessment>
-Behavior is the sequential gate strategy defined in CLAUDE.md:
-Step 1 — Run heuristic
-Call analyzeHeuristic(message) (synchronous). Capture the result.
-Step 2 — Early-exit decision
-If the heuristic result satisfies BOTH:
-
->confidence >= 85
-riskLevel === 'safe' OR riskLevel === 'dangerous' (NOT suspicious)
-
->Then return the heuristic result as-is with source: 'heuristic'. Skip the AI call entirely. Skip cost, skip latency.
-Rationale: extreme heuristic confidence with a clear verdict doesn't need AI confirmation. Suspicious-zone results always go to AI, because that's exactly the case where the heuristic isn't sure.
-Step 3 — Call AI
-Call analyzeWithAI(message, options) (await it). Pass through the signal option.
-If AI call throws (any error from aiAnalyzer, typed or not):
-
->Catch it
-Return the heuristic result but mutate source: 'heuristic' and degraded: true
-Do NOT rethrow. The user always gets some answer.
-
->Step 4 — Merge (both results available)
-Implement a private function:
-typescriptfunction mergeAssessments(
-  heuristic: RiskAssessment,
-  ai: RiskAssessment
-): RiskAssessment
-Merge rules:
-Risk level: take the more cautious. Implement a helper:
-typescriptconst RISK_ORDER: Record<RiskLevel, number> = {
-  safe: 0,
-  suspicious: 1,
-  dangerous: 2,
-};
-
->function moreCautious(a: RiskLevel, b: RiskLevel): RiskLevel {
-  return RISK_ORDER[a] >= RISK_ORDER[b] ? a : b;
-}
-Confidence: weighted average, AI favored. confidence = round(0.6 * ai.confidence + 0.4 * heuristic.confidence). Clamp to [0, 100].
-Flagged reasons: union, deduped by (category, description) pair. Implementation: concat both arrays, deduplicate. Two reasons are duplicates if they share the same category AND the same description (case-insensitive comparison of description). When duplicates exist, keep the one with the higher severity (low < medium < high).
-Explanation: combine both. Format:
-${ai.explanation} (Heuristic agreed: ${heuristic.riskLevel} at ${heuristic.confidence}% confidence.)
-If AI and heuristic disagree on risk level, the parenthetical becomes:
-${ai.explanation} (Heuristic flagged this as ${heuristic.riskLevel} at ${heuristic.confidence}% confidence.)
-Source: 'combined'
-degraded: undefined (don't set it; only set on AI failure)
-analyzedAt: new Date()
-Edge cases to handle explicitly
-
->Empty/whitespace message: the heuristic already returns safe with high confidence for these. The early-exit will kick in. No special handling needed in the orchestrator — verify with a test.
-AI returns a less cautious verdict than heuristic: the merge's "more cautious" rule handles this. heuristic=dangerous + ai=safe should still return dangerous. Test this.
-AI call cancelled via signal: the AbortError from fetch will propagate as an AIAnalyzerError. Treat it as any other AI failure: return heuristic with degraded: true. Test this.
-Heuristic confidence exactly 85: triggers early exit if also safe/dangerous (use >= not >).
-
->Test file
-Co-located. Use jest.mock() to mock @/services/heuristicAnalyzer and @/services/aiAnalyzer — don't run the real ones in these tests. The orchestrator is being tested in isolation; the analyzers have their own tests.
-Cover:
-
->Early exit on high-confidence safe: mock heuristic to return { riskLevel: 'safe', confidence: 95, ... }. Verify AI is NOT called. Verify result has source: 'heuristic'.
-Early exit on high-confidence dangerous: same pattern with dangerous result. Verify AI not called.
-NO early exit on high-confidence suspicious: mock heuristic to return { riskLevel: 'suspicious', confidence: 95, ... }. Verify AI IS called.
-NO early exit on low-confidence safe: mock heuristic to return { riskLevel: 'safe', confidence: 70, ... }. Verify AI IS called.
-Merge happens when both run: mock both. Verify result has source: 'combined' and merged fields per rules.
-More cautious takes precedence: mock heuristic=safe@70 + ai=dangerous@90. Verify result risk level is dangerous.
-Confidence weighted average: mock heuristic=80 + ai=90. Verify result confidence is round(0.6*90 + 0.4*80) = 86.
-Reason dedup by category+description: mock heuristic with {category:'url', description:'Bit.ly URL', severity:'medium'} and AI with same category+description but severity:'high'. Verify result contains exactly one reason for that pair, with severity=high.
-Reason union when different: mock heuristic with [{category:'url',...}] and AI with [{category:'urgency',...}]. Verify result contains both.
-AI failure falls back to heuristic with degraded flag: mock AI to throw AIAnalyzerError. Verify result is heuristic-shaped with source: 'heuristic' and degraded: true. Verify error is NOT rethrown.
-AI cancellation falls back: mock AI to throw a DOMException with name 'AbortError'. Verify same fallback behavior.
-Signal passthrough: verify the orchestrator passes the options.signal argument through to analyzeWithAI.
-Explanation format with agreement: when heuristic and AI agree on risk level, the parenthetical uses "Heuristic agreed: ..." wording.
-Explanation format with disagreement: when they disagree, parenthetical uses "Heuristic flagged this as ..." wording.
-More-cautious helper unit tests: test the moreCautious function (export it for testing) against all 9 pair combinations.
-
->Mark the test file with a top-of-file comment listing which tests were AI-generated.
-Constraints
-
->TypeScript strict, no any
-Named exports only
-Use types from @/models
-Imports allowed: @/models, @/services/heuristicAnalyzer, @/services/aiAnalyzer (and @/services/errors if you need the error types for instanceof checks — but the spec says "catch any error", so probably not needed)
-JSDoc on every exported symbol
-No retry, no caching, no console
-
->Output format
-Propose the plan first. List:
-
->Files you'll create
-Specific decisions you're making that I didn't fully specify
-Concerns or pushback
-
->Do not write code until I approve.
+</details>
 
 
 ## AI Code Review Summary
