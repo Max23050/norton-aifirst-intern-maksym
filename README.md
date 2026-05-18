@@ -415,9 +415,6 @@ Flagged credential leakage risk. The OpenAI API key sits in fetch's Authorizatio
 
 **Prompt:**
 
-<details>
-<summary><b>Click to expand</b></summary>
-
 > I need to implement `src/services/analyzerOrchestrator.ts` and co-located tests. Read `CLAUDE.md` first, then read `heuristicAnalyzer.ts` and `aiAnalyzer.ts` to understand the inputs you'll be combining.
 > 
 > **What the orchestrator does** > Single exported function:
@@ -454,7 +451,6 @@ Flagged credential leakage risk. The OpenAI API key sits in fetch's Authorizatio
 > 
 > **Output format:** Propose the plan first. List specific decisions you're making and any concerns or pushback on the spec. Do not write code until I approve.
 
-</details>
 
 
 ## AI Code Review Summary
