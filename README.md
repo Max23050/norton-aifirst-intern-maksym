@@ -194,7 +194,7 @@ beats trust.
 Create the following files in src/models/:
 
 >RiskLevel.ts — a string union type with values 'safe' | 'suspicious' | 'dangerous', exported as a type alias. Also export a >const array RISK_LEVELS containing all values, typed as readonly RiskLevel[], useful for iteration and validation.
->FlaggedReason.ts — a ReasonCategory string union covering: 'url', 'urgency', 'credentials', 'financial', 'impersonation' > >'grammar', 'other'. Also export a FlaggedReason interface with: category: ReasonCategory, description: string (1 sentence, >human-readable), and severity: 'low' | 'medium' | 'high'. Export a const array REASON_CATEGORIES for iteration.
+>FlaggedReason.ts — a ReasonCategory string union covering: 'url', 'urgency', 'credentials', 'financial', 'impersonation'  'grammar', 'other'. Also export a FlaggedReason interface with: category: ReasonCategory, description: string (1 sentence, human-readable), and severity: 'low' | 'medium' | 'high'. Export a const array REASON_CATEGORIES for iteration.
 >AnalysisRequest.ts — an interface with: message: string (the text to analyze), type: 'sms' | 'email' | 'url' | 'unknown'  >(optional, default 'unknown' — let consumers pass it or leave it out), submittedAt: Date.
 >RiskAssessment.ts — the result type, an interface with:
 
@@ -263,16 +263,16 @@ Files to create
 src/services/aiAnalyzer.ts — the OpenAI client
 src/services/aiAnalyzer.test.ts — co-located tests
 
-File 1: src/services/errors.ts
+>File 1: src/services/errors.ts
 Export three error classes, all extending Error, all with proper name set and a typed cause chain (so original errors can be inspected):
 typescriptexport class AnalyzerError extends Error {
   readonly cause?: unknown;
   constructor(message: string, cause?: unknown) { ... }
 }
 
-export class AIAnalyzerError extends AnalyzerError { ... }
+>export class AIAnalyzerError extends AnalyzerError { ... }
 
-export class ValidationError extends AnalyzerError { ... }
+>export class ValidationError extends AnalyzerError { ... }
 All three set this.name to the class name. The cause field uses TypeScript's native cause (ES2022) — if the target doesn't support it, fall back to a custom field. Use Error.captureStackTrace(this, this.constructor) when available.
 File 2: src/services/aiAnalyzer.ts
 Export:
@@ -282,7 +282,7 @@ typescriptexport async function analyzeWithAI(
 ): Promise<RiskAssessment>
 Implementation:
 
-Read API key from @env (the react-native-dotenv module alias). Throw AIAnalyzerError('OpenAI API key is missing') if it's empty or still the placeholder 'sk-your-key-here'.
+>Read API key from @env (the react-native-dotenv module alias). Throw AIAnalyzerError('OpenAI API key is missing') if it's empty or still the placeholder 'sk-your-key-here'.
 Endpoint: https://api.openai.com/v1/chat/completions
 Request body:
 typescript{
@@ -296,10 +296,10 @@ typescript{
   ]
 }
 
-System prompt (embed as a top-of-file const SYSTEM_PROMPT = ...):
+>System prompt (embed as a top-of-file const SYSTEM_PROMPT = ...):
 You are a cybersecurity assistant analyzing text messages for scam indicators. Your job is to assess whether a given message is a legitimate communication or a scam (phishing, smishing, fraud, social engineering).
 
-You will respond ONLY with valid JSON matching this exact schema:
+>You will respond ONLY with valid JSON matching this exact schema:
 {
   "riskLevel": "safe" | "suspicious" | "dangerous",
   "confidence": <integer 0-100>,
@@ -313,7 +313,7 @@ You will respond ONLY with valid JSON matching this exact schema:
   ]
 }
 
-Guidelines:
+>Guidelines:
 - "safe": no scam indicators. Normal personal, transactional, or commercial messages.
 - "suspicious": one or two soft signals (mild urgency, generic greeting) but not conclusive.
 - "dangerous": clear scam indicators (credential requests, suspicious URLs, payment demands, impersonation).
@@ -322,24 +322,24 @@ Guidelines:
 - If the message is empty, gibberish, or too short to analyze, return "safe" with low confidence and an explanation saying so.
 - Respond ONLY with the JSON object. No prose before or after. No markdown code fences.
 
-Network call: Use native fetch with Authorization: Bearer ${apiKey} and Content-Type: application/json. Pass signal from options through to fetch for cancellation.
+>Network call: Use native fetch with Authorization: Bearer ${apiKey} and Content-Type: application/json. Pass signal from options through to fetch for cancellation.
 Error handling:
 
-Network error or AbortError → AIAnalyzerError('OpenAI request failed', cause)
+>Network error or AbortError → AIAnalyzerError('OpenAI request failed', cause)
 Non-2xx response → AIAnalyzerError(\OpenAI returned status ${status}`, responseBody)` (parse body if possible)
 401 specifically → AIAnalyzerError('OpenAI API key is invalid or unauthorized')
 429 specifically → AIAnalyzerError('OpenAI rate limit hit')
 
 
-Parse response:
+>Parse response:
 
-Extract data.choices[0].message.content (string)
+>Extract data.choices[0].message.content (string)
 JSON.parse it; if it throws → ValidationError('AI response was not valid JSON', cause)
 
 
-Validate parsed JSON. Write a private function validateAssessment(obj: unknown): RiskAssessment that:
+>Validate parsed JSON. Write a private function validateAssessment(obj: unknown): RiskAssessment that:
 
-Checks obj is a non-null object
+>Checks obj is a non-null object
 Validates riskLevel is one of the three valid strings (use RISK_LEVELS from models)
 Validates confidence is a number, clamps to [0, 100], rounds to integer
 Validates explanation is a non-empty string (truncate to 500 chars if longer)
@@ -349,28 +349,28 @@ Throws ValidationError if riskLevel is invalid (this is the only non-recoverable
 For all other validation failures, default sensible values rather than throw — we want to be permissive on AI output where safe
 
 
-Construct the final RiskAssessment:
+>onstruct the final RiskAssessment:
 
-Spread validated fields
+>Spread validated fields
 Set source: 'ai'
 Set analyzedAt: new Date()
 Do not set degraded (that's an orchestrator concern)
 
 
-Constants at top of file:
+>Constants at top of file:
 
-const SYSTEM_PROMPT = '...' (the prompt above)
+>const SYSTEM_PROMPT = '...' (the prompt above)
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions'
 const MODEL = 'gpt-4o-mini'
 const REQUEST_TIMEOUT_MS = 15000 (wrap fetch in a timeout via AbortController if no signal is provided)
 
 
 
-File 3: src/services/aiAnalyzer.test.ts
+>File 3: src/services/aiAnalyzer.test.ts
 Co-located tests. Mock fetch globally for these tests — DO NOT make real OpenAI calls in tests (it would burn API quota and be flaky).
 Cover:
 
-Successful call: mock fetch to return a valid OpenAI response with valid JSON content. Verify the returned RiskAssessment has correct source: 'ai', correct fields, and analyzedAt is a Date.
+>Successful call: mock fetch to return a valid OpenAI response with valid JSON content. Verify the returned RiskAssessment has correct source: 'ai', correct fields, and analyzedAt is a Date.
 Network failure: mock fetch to reject with a network error. Verify AIAnalyzerError is thrown with the original error as cause.
 401 response: mock fetch to return { ok: false, status: 401 }. Verify the error message mentions invalid/unauthorized key.
 429 response: verify rate-limit-specific error message.
@@ -381,24 +381,24 @@ Schema-mismatched response — missing fields with defaults: mock content with o
 Missing API key: mock @env to return the placeholder. Verify it throws immediately without making a network call.
 AbortSignal: pass an already-aborted signal. Verify it doesn't make the network call (or fetch rejects appropriately).
 
-Mark this test file with a top-of-file comment listing which tests were AI-generated.
+>Mark this test file with a top-of-file comment listing which tests were AI-generated.
 Constraints
 
-TypeScript strict, no any (use unknown and narrow)
+>TypeScript strict, no any (use unknown and narrow)
 Named exports only
 No retry logic, no caching, no merge logic (these belong elsewhere)
 All async paths throw typed errors, never reject with strings
 JSDoc on every exported symbol
 Use types from @/models
 
-Output format
+>Output format
 Propose the plan first. List:
 
-Files you'll create
+>Files you'll create
 Any decisions you're making that I didn't specify (mocking strategy, default values for validation defaults, etc.)
 Any concerns or pushback on the spec
 
-Do not write code until I approve.
+>Do not write code until I approve.
 
 **My evaluation:**
 Flagged credential leakage risk. The OpenAI API key sits in fetch's Authorization header. If raw Response/Request/Headers objects flow into an error's cause chain, and the error reaches a crash reporter, the bearer token leaks. Claude agreed and proposed:
@@ -413,13 +413,15 @@ Flagged credential leakage risk. The OpenAI API key sits in fetch's Authorizatio
 
 **Phase:** Implementation (Orchestrator)
 
-I need to implement src/services/analyzerOrchestrator.ts and co-located tests. Read CLAUDE.md first, then read src/services/heuristicAnalyzer.ts and src/services/aiAnalyzer.ts to understand the inputs you'll be combining.
+**Prompt:**
+
+>I need to implement src/services/analyzerOrchestrator.ts and co-located tests. Read CLAUDE.md first, then read src/services/heuristicAnalyzer.ts and src/services/aiAnalyzer.ts to understand the inputs you'll be combining.
 Files to create
 
-src/services/analyzerOrchestrator.ts — the merge logic
+>src/services/analyzerOrchestrator.ts — the merge logic
 src/services/analyzerOrchestrator.test.ts — co-located tests
 
-What the orchestrator does
+>What the orchestrator does
 Single exported function:
 typescriptexport async function analyze(
   message: string,
@@ -431,20 +433,20 @@ Call analyzeHeuristic(message) (synchronous). Capture the result.
 Step 2 — Early-exit decision
 If the heuristic result satisfies BOTH:
 
-confidence >= 85
+>confidence >= 85
 riskLevel === 'safe' OR riskLevel === 'dangerous' (NOT suspicious)
 
-Then return the heuristic result as-is with source: 'heuristic'. Skip the AI call entirely. Skip cost, skip latency.
+>Then return the heuristic result as-is with source: 'heuristic'. Skip the AI call entirely. Skip cost, skip latency.
 Rationale: extreme heuristic confidence with a clear verdict doesn't need AI confirmation. Suspicious-zone results always go to AI, because that's exactly the case where the heuristic isn't sure.
 Step 3 — Call AI
 Call analyzeWithAI(message, options) (await it). Pass through the signal option.
 If AI call throws (any error from aiAnalyzer, typed or not):
 
-Catch it
+>Catch it
 Return the heuristic result but mutate source: 'heuristic' and degraded: true
 Do NOT rethrow. The user always gets some answer.
 
-Step 4 — Merge (both results available)
+>Step 4 — Merge (both results available)
 Implement a private function:
 typescriptfunction mergeAssessments(
   heuristic: RiskAssessment,
@@ -458,7 +460,7 @@ typescriptconst RISK_ORDER: Record<RiskLevel, number> = {
   dangerous: 2,
 };
 
-function moreCautious(a: RiskLevel, b: RiskLevel): RiskLevel {
+>function moreCautious(a: RiskLevel, b: RiskLevel): RiskLevel {
   return RISK_ORDER[a] >= RISK_ORDER[b] ? a : b;
 }
 Confidence: weighted average, AI favored. confidence = round(0.6 * ai.confidence + 0.4 * heuristic.confidence). Clamp to [0, 100].
@@ -472,16 +474,16 @@ degraded: undefined (don't set it; only set on AI failure)
 analyzedAt: new Date()
 Edge cases to handle explicitly
 
-Empty/whitespace message: the heuristic already returns safe with high confidence for these. The early-exit will kick in. No special handling needed in the orchestrator — verify with a test.
+>Empty/whitespace message: the heuristic already returns safe with high confidence for these. The early-exit will kick in. No special handling needed in the orchestrator — verify with a test.
 AI returns a less cautious verdict than heuristic: the merge's "more cautious" rule handles this. heuristic=dangerous + ai=safe should still return dangerous. Test this.
 AI call cancelled via signal: the AbortError from fetch will propagate as an AIAnalyzerError. Treat it as any other AI failure: return heuristic with degraded: true. Test this.
 Heuristic confidence exactly 85: triggers early exit if also safe/dangerous (use >= not >).
 
-Test file
+>Test file
 Co-located. Use jest.mock() to mock @/services/heuristicAnalyzer and @/services/aiAnalyzer — don't run the real ones in these tests. The orchestrator is being tested in isolation; the analyzers have their own tests.
 Cover:
 
-Early exit on high-confidence safe: mock heuristic to return { riskLevel: 'safe', confidence: 95, ... }. Verify AI is NOT called. Verify result has source: 'heuristic'.
+>Early exit on high-confidence safe: mock heuristic to return { riskLevel: 'safe', confidence: 95, ... }. Verify AI is NOT called. Verify result has source: 'heuristic'.
 Early exit on high-confidence dangerous: same pattern with dangerous result. Verify AI not called.
 NO early exit on high-confidence suspicious: mock heuristic to return { riskLevel: 'suspicious', confidence: 95, ... }. Verify AI IS called.
 NO early exit on low-confidence safe: mock heuristic to return { riskLevel: 'safe', confidence: 70, ... }. Verify AI IS called.
@@ -497,24 +499,24 @@ Explanation format with agreement: when heuristic and AI agree on risk level, th
 Explanation format with disagreement: when they disagree, parenthetical uses "Heuristic flagged this as ..." wording.
 More-cautious helper unit tests: test the moreCautious function (export it for testing) against all 9 pair combinations.
 
-Mark the test file with a top-of-file comment listing which tests were AI-generated.
+>Mark the test file with a top-of-file comment listing which tests were AI-generated.
 Constraints
 
-TypeScript strict, no any
+>TypeScript strict, no any
 Named exports only
 Use types from @/models
 Imports allowed: @/models, @/services/heuristicAnalyzer, @/services/aiAnalyzer (and @/services/errors if you need the error types for instanceof checks — but the spec says "catch any error", so probably not needed)
 JSDoc on every exported symbol
 No retry, no caching, no console
 
-Output format
+>Output format
 Propose the plan first. List:
 
-Files you'll create
+>Files you'll create
 Specific decisions you're making that I didn't fully specify
 Concerns or pushback
 
-Do not write code until I approve.
+>Do not write code until I approve.
 
 
 ## AI Code Review Summary
