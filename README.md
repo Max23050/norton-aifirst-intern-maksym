@@ -123,56 +123,6 @@ The app does not retry AI requests. Unexpected programmer errors should be rethr
 
 ## AI Interaction Log
 
-### 1. UI layer plan and implementation
-
-Prompt:
-
-```text
-Build the UI Layer. Read CLAUDE.md and the Norton-adjacent visual language section. Create MessageInput, ResultCard, colors, and the main smart screen. Dumb components must take props only.
-```
-
-How I used it:
-
-I used the AI output to structure a classic Expo `App.tsx` instead of adding Expo Router. I refined the decomposition by adding `ReasonItem` as a dumb child component and keeping all analysis logic in `useScamAnalyzer`.
-
-### 2. Prompt injection mitigation
-
-Prompt:
-
-```text
-Prompt injection mitigation is absent. User content is concatenated straight into the prompt. Delimit user content and treat it as untrusted data.
-```
-
-How I used it:
-
-The first implementation was not enough because it still relied on plain text prompt boundaries. I refined it so the user message is passed as JSON under `untrustedMessage`, added explicit system instructions, and added a deterministic guard for obvious injection attempts.
-
-### 3. Timeout and abort handling
-
-Prompt:
-
-```text
-The 15s timeout is disabled when the hook supplies a caller signal. Always create the timeout controller and link the caller signal to it.
-```
-
-How I used it:
-
-I refactored AI request signal creation so every request gets its own timeout signal. The caller signal is linked into it, and cleanup removes timers/listeners. Tests now cover timeout with a caller signal and mid-fetch abort.
-
-### 4. Data-vs-logic contract
-
-Prompt:
-
-```text
-scamPatterns.ts must not execute matching logic, but function patterns define evaluate callbacks. Move logic out of data or relax the spec.
-```
-
-How I used it:
-
-I moved executable matching behavior out of the data file. The data catalog now stores declarative threshold patterns, while `heuristicAnalyzer.ts` owns the metric registry and matching logic.
-
-### 5. OTP false-positive review
-
 ### Prompt 1: Project architecture and module boundaries
 
 **Phase:** Architecture / setup
